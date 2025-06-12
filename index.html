@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Multi-Sprint Planner with AI Features</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #f8fafc; }
+        .task-card {
+            display: flex; flex-direction: column; padding: 8px 12px; border-radius: 8px;
+            margin-bottom: 8px; border: 1px solid; box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
+        }
+        .task-create { background-color: #dcfce7; border-color: #bbf7d0; color: #166534; }
+        .task-execute { background-color: #dbeafe; border-color: #bfdbfe; color: #1e40af; }
+        .task-verify { background-color: #fee2e2; border-color: #fecaca; color: #991b1b; }
+        .task-demo { background-color: #fef9c3; border-color: #fef08a; color: #854d0e; }
+        .action-btn { font-size: 12px; font-weight: 500; padding: 4px; border-radius: 4px; cursor: pointer; transition: background-color 0.2s; display: flex; align-items: center; justify-content: center; }
+        .task-create .action-btn { background-color: #86efac; color: #14532d; } .task-create .action-btn:hover { background-color: #4ade80; }
+        .task-execute .action-btn { background-color: #93c5fd; color: #1e3a8a; } .task-execute .action-btn:hover { background-color: #60a5fa; }
+        .task-verify .action-btn { background-color: #fca5a5; color: #7f1d1d; } .task-verify .action-btn:hover { background-color: #f87171; }
+        .task-demo .action-btn { background-color: #fde047; color: #713f12; } .task-demo .action-btn:hover { background-color: #facc15; }
+        
+        .progress-bar-container { margin-top: 8px; }
+        .progress-bar-bg { background-color: rgba(0,0,0,0.1); border-radius: 4px; height: 10px; overflow: hidden;}
+        .progress-bar-fg { height: 100%; border-radius: 4px; transition: width 0.3s; pointer-events: none; background-color: #6366f1; }
+        
+        .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(0, 0, 0, 0.6); display: flex; align-items: center; justify-content: center; z-index: 50; transition: opacity 0.3s; }
+        .modal-content { background-color: white; padding: 24px; border-radius: 8px; max-width: 800px; width: 95%; max-height: 90vh; overflow-y: auto; transform: scale(0.95); transition: transform 0.3s;}
+        .modal-overlay:not(.hidden) .modal-content { transform: scale(1); }
+        .link-area { margin-top: 8px; padding-top: 6px; border-top: 1px solid rgba(0,0,0,0.08); display: flex; align-items: center; text-decoration: none; font-size: 12px; font-weight: 500; }
+        .tab { padding: 8px 16px; cursor: pointer; border-bottom: 2px solid transparent; white-space: nowrap; }
+        .tab.active { border-bottom-color: #4f46e5; color: #4f46e5; font-weight: 600; }
+        .form-input { width: 100%; padding: 6px 8px; border: 1px solid #d1d5db; border-radius: 4px; font-size: 14px; }
+    </style>
+</head>
+<body class="p-4 sm:p-6 md:p-8">
+
+    <div class="max-w-7xl mx-auto">
+        <div id="tabs-container" class="flex border-b border-gray-200 mb-4 overflow-x-auto"></div>
+        <div id="sprint-content">
+            <!-- Sprint content will be rendered here -->
+        </div>
+    </div>
+    
+    <div id="generic-modal" class="modal-overlay hidden opacity-0"><div class="modal-content"></div></div>
+    
+<script>
+const APP_DATA_KEY = 'multiSprintPlannerState_v8';
+let appState = { activeSprintId: null, sprints: {} };
+
+const dayMeta = {
+    w1d1: { week: 1, name: 'Monday' }, w1d2: { week: 1, name: 'Tuesday' }, w1d3: { week: 1, name: 'Wednesday' },
+    w1d4: { week: 1, name: 'Thursday' }, w1d5: { week: 1, name: 'Friday' },
+    w2d1: { week: 2, name: 'Monday' }, w2d2: { week: 2, name: 'Tuesday' }, w2d3: { week: 2, name: 'Wednesday' },
+    w2d4: { week: 2, name: 'Thursday' }
+};
+
+function saveState() {
+    try {
+        localStorage.setItem(APP_DATA_KEY, JSON.stringify(appState));
+    } catch (e) { console.error("Failed to save state:", e); }
+}
+
+function loadState() {
+    try {
+        const savedState = localStorage.getItem(APP_DATA_KEY);
+        if (savedState) {
+            appState = JSON.parse(savedState);
+            if (appState && appState.sprints) {
+                Object.keys(appState.sprints).forEach(sprintId => {
+                    const sprint = appState.sprints[sprintId];
+                    if (!sprint || typeof sprint.sprintName === 'undefined' || typeof sprint.schedule === 'undefined') {
+                        console.warn(`Removing corrupted or invalid sprint data for ID: ${sprintId}`);
+                        delete appState.sprints[sprintId];
+                    }
+                });
+            } else {
+                appState.sprints = {};
+            }
+        }
+        
+        if (!appState.sprints || Object.keys(appState.sprints).length === 0) {
+             const defaultSprintId = `sprint-${Date.now()}`;
+            appState.sprints = {};
+            appState.sprints[defaultSprintId] = createDefaultSampleSprintState("Sample Sprint");
+            appState.activeSprintId = defaultSprintId;
+        }
+
+    } catch (e) {
+        console.error("Failed to parse or sanitize saved state. Resetting to default.", e);
+        appState = { activeSprintId: null, sprints: {} };
+        const defaultSprintId = `sprint-${Date.now()}`;
+        appState.sprints[defaultSprintId] = createDefaultSampleSprintState("Sample Sprint");
+        appState.activeSprintId = defaultSprintId;
+    }
+}
+
+function renderApp() {
+    if (!appState.activeSprintId || !appState.sprints[appState.activeSprintId]) {
+        const firstValidSprintId = Object.keys(appState.sprints).find(id => appState.sprints[id]);
+        if (firstValidSprintId) {
+            appState.activeSprintId = firstValidSprintId;
+        } else {
+            appState.sprints = {};
+            const newId = `sprint-${Date.now()}`;
+            appState.sprints[newId] = createDefaultSampleSprintState("Sample Sprint");
+            appState.activeSprintId = newId;
+        }
+    }
+    renderTabs();
+    renderSprintContent(appState.activeSprintId);
+    saveState();
+}
+
+function renderTabs() {
+    const tabsContainer = document.getElementById('tabs-container');
+    tabsContainer.innerHTML = '';
+    Object.keys(appState.sprints).forEach(sprintId => {
+        const sprint = appState.sprints[sprintId];
+        const tab = document.createElement('div');
+        tab.className = `tab ${sprintId === appState.activeSprintId ? 'active' : ''}`;
+        tab.textContent = sprint.sprintName;
+        tab.onclick = () => switchTab(sprintId);
+        tabsContainer.appendChild(tab);
+    });
+    const addTabButton = document.createElement('button');
+    addTabButton.textContent = '+ Add Sprint';
+    addTabButton.className = 'ml-4 my-1 px-3 py-1 text-sm bg-indigo-100 text-indigo-700 rounded-md hover:bg-indigo-200';
+    addTabButton.onclick = showNewSprintDialog;
+    tabsContainer.appendChild(addTabButton);
+}
+
+function switchTab(sprintId) {
+    appState.activeSprintId = sprintId;
+    renderApp();
+}
+
+function renderSprintContent(sprintId) {
+    const sprint = appState.sprints[sprintId];
+    if (!sprint) return;
+
+    const container = document.getElementById('sprint-content');
+    container.innerHTML = `
+        <div class="flex flex-wrap items-center justify-between gap-4 mb-4">
+            <input type="text" value="${sprint.sprintName}" oninput="updateSprintName(this.value)" class="text-2xl font-bold text-gray-800 bg-transparent border-b-2 border-gray-300 focus:border-indigo-500 outline-none w-auto max-w-full">
+            <div class="flex flex-wrap gap-2">
+                <button id="import-current-btn" class="px-3 py-1.5 text-sm font-medium bg-green-100 text-green-700 border border-green-200 rounded-md shadow-sm hover:bg-green-200">Import</button>
+                <button id="export-current-btn" class="px-3 py-1.5 text-sm font-medium bg-blue-100 text-blue-700 border border-blue-200 rounded-md shadow-sm hover:bg-blue-200">Export</button>
+                <button id="share-btn" class="px-3 py-1.5 text-sm font-medium bg-yellow-100 text-yellow-700 border border-yellow-200 rounded-md shadow-sm hover:bg-yellow-200">Share</button>
+                <button id="assess-risks-btn" class="px-3 py-1.5 text-sm font-medium bg-purple-100 text-purple-700 border border-purple-200 rounded-md shadow-sm hover:bg-purple-200">✨ Assess Risks</button>
+                <button id="delete-sprint-btn" class="px-3 py-1.5 text-sm font-medium bg-red-100 text-red-700 border border-red-200 rounded-md shadow-sm hover:bg-red-200">Delete</button>
+            </div>
+        </div>
+        <div id="task-summary-card" class="mb-6"></div>
+        <div id="summary-section" class="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-8"></div>
+        <div class="mb-10"><h2 class="text-xl font-semibold text-gray-700 mb-4">Week 1</h2><div id="week-1-planner" class="overflow-x-auto bg-white rounded-lg shadow"></div></div>
+        <div><h2 class="text-xl font-semibold text-gray-700 mb-4">Week 2</h2><div id="week-2-planner" class="overflow-x-auto bg-white rounded-lg shadow"></div></div>`;
+    addSprintContentEventListeners();
+    renderSummary(sprint);
+    renderTaskSummary(sprint);
+    renderPlanner(sprint);
+}
+
+function renderSummary(sprint) {
+    const container = document.querySelector('#sprint-content #summary-section');
+    if (!container) return;
+    const totalHours = Object.values(sprint.dailyLimits).reduce((a, b) => a + b, 0);
+    const demoHours = Object.values(sprint.tasks).filter(t => t.type === 'demo').reduce((s,t) => s + t.totalHours, 0);
+    const ticketHours = Object.values(sprint.tasks).filter(t => t.type !== 'demo').reduce((s,t) => s + t.totalHours, 0);
+    container.innerHTML = `
+        <div class="bg-white p-4 rounded-lg shadow"><p class="text-sm text-gray-500">Total Hours</p><p class="text-xl font-bold text-gray-800">${totalHours.toFixed(2)} h</p></div>
+        <div class="bg-white p-4 rounded-lg shadow"><p class="text-sm text-gray-500">Ticket Time</p><p class="text-xl font-bold text-gray-800">${ticketHours.toFixed(2)} h</p></div>
+        <div class="bg-white p-4 rounded-lg shadow"><p class="text-sm text-gray-500">Demo Prep</p><p class="text-xl font-bold text-gray-800">${demoHours.toFixed(2)} h</p></div>
+        <div class="bg-white p-4 rounded-lg shadow"><p class="text-sm text-gray-500">Total Progress</p><p class="text-xl font-bold text-gray-800">${calculateOverallProgress(sprint)}%</p></div>`;
+}
+
+function renderTaskSummary(sprint) {
+    const container = document.getElementById('task-summary-card');
+    const storySummary = {};
+    const bugSummary = { totalHours: 0, tickets: [] };
+    for (const taskId in sprint.tasks) {
+        const task = sprint.tasks[taskId];
+        if (task.ticketId === 'N/A') continue;
+        if (task.name === 'Verify Bug') {
+            bugSummary.totalHours += task.totalHours;
+            if(!bugSummary.tickets.includes(task.ticketId)) {
+                bugSummary.tickets.push(task.ticketId);
+            }
+        } else {
+            if (!storySummary[task.ticketId]) storySummary[task.ticketId] = {};
+            storySummary[task.ticketId][task.name] = (storySummary[task.ticketId][task.name] || 0) + task.totalHours;
+        }
+    }
+
+    let summaryHtml = '<details class="bg-white rounded-lg shadow p-4" open><summary class="font-semibold cursor-pointer">Task Summary</summary><div class="mt-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">';
+    for (const ticketId in storySummary) {
+        summaryHtml += `<div class="border rounded-md p-3"><strong class="font-medium text-gray-800">${ticketId}</strong><ul class="mt-2 text-sm space-y-1">`;
+        for (const taskName in storySummary[ticketId]) {
+            summaryHtml += `<li class="flex justify-between"><span>${taskName}:</span><span class="font-mono">${storySummary[ticketId][taskName].toFixed(2)}h</span></li>`;
+        }
+        summaryHtml += '</ul></div>';
+    }
+    if(bugSummary.tickets.length > 0) {
+        summaryHtml += `<div class="border rounded-md p-3 bg-red-50"><strong class="font-medium text-red-800">Bugs (${bugSummary.tickets.join(', ')})</strong><ul class="mt-2 text-sm space-y-1">`;
+        summaryHtml += `<li class="flex justify-between"><span>Total Verification Time:</span><span class="font-mono">${bugSummary.totalHours.toFixed(2)}h</span></li>`;
+        summaryHtml += '</ul></div>';
+    }
+    summaryHtml += '</div></details>';
+    container.innerHTML = summaryHtml;
+}
+
+function renderPlanner(sprint) {
+    const week1Container = document.querySelector('#sprint-content #week-1-planner');
+    const week2Container = document.querySelector('#sprint-content #week-2-planner');
+    if (!week1Container || !week2Container) return;
+    week1Container.innerHTML = generateWeekHtml(Object.keys(dayMeta).filter(d => dayMeta[d].week === 1), sprint);
+    week2Container.innerHTML = generateWeekHtml(Object.keys(dayMeta).filter(d => dayMeta[d].week === 2), sprint);
+}
+
+function extractTicketIdFromUrl(url) {
+    if (!url) return 'Add Link';
+    const jiraRegex = /\/browse\/([A-Z0-9]+-\d+)/;
+    const match = url.match(jiraRegex);
+    return match ? match[1] : 'View Link';
+}
+
+function generateWeekHtml(days, sprint) {
+    const headHtml = days.map(dayId => `<th class="p-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">${dayMeta[dayId].name} (${sprint.dailyLimits[dayId]}h)</th>`).join('');
+    const bodyHtml = '<tr>' + days.map(dayId => {
+        const tasksOnDay = (sprint.schedule[dayId] || []).sort((a, b) => (sprint.tasks[a.taskId]?.type === 'demo' ? 1 : 0) - (sprint.tasks[b.taskId]?.type === 'demo' ? 1 : 0));
+        const taskCards = tasksOnDay.map(st => {
+            const ti = sprint.tasks[st.taskId];
+            if (!ti) return '';
+            const linkText = extractTicketIdFromUrl(st.link);
+            const linkIcon = st.link 
+                ? `<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="mr-2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>`
+                : `<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="mr-2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>`;
+            const linkElement = st.link 
+                ? `<a href="${st.link}" target="_blank" class="link-area text-current hover:underline" title="${st.link}">${linkIcon}<span>${linkText}</span></a>`
+                : `<button class="link-area text-current hover:underline" data-action="add-link">${linkIcon}<span>${linkText}</span></button>`;
+            
+            return `
+                <div class="task-card ${'task-' + ti.type}" data-scheduled-id="${st.id}">
+                    <div class="flex justify-between items-start">
+                        <div class="flex-grow"><span class="font-bold text-sm">${ti.name}</span><span class="block text-xs opacity-80">${ti.ticketId}</span><span class="block text-sm font-bold mt-1">${st.hours.toFixed(2)}h</span></div>
+                        <div class="flex flex-col gap-1.5">
+                            <button class="action-btn" data-action="edit" title="Edit/Move Task Time"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg></button>
+                            <button class="action-btn" data-action="progress" title="Update Progress"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z"/><path d="M12 6v6l4 2"/></svg></button>
+                            <button class="action-btn" data-action="suggest" title="Get AI Suggestions"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8V4H8"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/></svg></button>
+                        </div>
+                    </div>
+                    ${linkElement}
+                    <div class="progress-bar-container"><div class="progress-bar-bg"><div class="progress-bar-fg" style="width: ${st.progress}%;"></div></div></div>
+                </div>`;
+        }).join('');
+        return `<td class="p-2 align-top">${taskCards}</td>`;
+    }).join('') + '</tr>';
+    return `<table class="w-full min-w-[600px]"><thead class="bg-gray-50"><tr>${headHtml}</tr></thead><tbody class="divide-y divide-gray-200">${bodyHtml}</tbody></table>`;
+}
+
+function addSprintContentEventListeners() {
+    const container = document.getElementById('sprint-content');
+    container.addEventListener('click', handleCardClick);
+    document.getElementById('import-current-btn').onclick = () => handleImportClick(true);
+    document.getElementById('export-current-btn').onclick = handleExportClick;
+    document.getElementById('share-btn').onclick = handleShareClick;
+    document.getElementById('delete-sprint-btn').onclick = handleDeleteSprint;
+    document.getElementById('assess-risks-btn').onclick = handleRiskAssessmentClick;
+}
+
+function handleCardClick(e) {
+    const button = e.target.closest('[data-action]');
+    if (!button) return;
+    const action = button.dataset.action;
+    const card = e.target.closest('.task-card');
+    const scheduledId = card.dataset.scheduledId;
+    if (action === 'edit') handleEditClick(scheduledId);
+    if (action === 'progress') handleProgressClick(scheduledId);
+    if (action === 'suggest') handleSuggestionClick(scheduledId);
+    if (action === 'add-link') handleLinkClick(scheduledId);
+}
+
+function showModal(content) {
+    const modal = document.getElementById('generic-modal');
+    modal.innerHTML = `<div class="modal-content">${content}</div>`;
+    modal.classList.remove('hidden');
+    setTimeout(() => modal.classList.remove('opacity-0'), 10);
+    return modal.querySelector('.modal-content');
+}
+
+function hideModal() {
+    const modal = document.getElementById('generic-modal');
+    modal.classList.add('opacity-0');
+    setTimeout(() => { modal.classList.add('hidden'); modal.innerHTML = ''; }, 300);
+}
+
+function showNewSprintDialog() {
+    showModal(`
+        <h3 class="text-xl font-semibold mb-4">Add New Sprint</h3>
+        <div class="flex flex-col gap-4">
+            <button id="import-sprint-btn" class="w-full text-left p-4 border rounded-lg hover:bg-gray-50"><strong class="text-indigo-600">Import from File</strong><p class="text-sm text-gray-600">Load a previously exported sprint plan into a new tab.</p></button>
+            <button id="create-sprint-btn" class="w-full text-left p-4 border rounded-lg hover:bg-gray-50"><strong class="text-indigo-600">Create New Board</strong><p class="text-sm text-gray-600">Manually enter tickets to build a new board.</p></button>
+        </div>
+        <div class="flex justify-end mt-6"><button onclick="hideModal()" class="px-4 py-2 bg-gray-200 rounded-md">Cancel</button></div>`);
+    document.getElementById('import-sprint-btn').onclick = () => handleImportClick(false);
+    document.getElementById('create-sprint-btn').onclick = handleCreateNewBoardClick;
+}
+
+function handleImportClick(overwriteCurrent = false) {
+    const title = overwriteCurrent ? 'Import to Current Tab' : 'Import Sprint to New Tab';
+    const backButton = overwriteCurrent ? '' : `<button onclick="showNewSprintDialog()" class="px-4 py-2 bg-gray-200 rounded-md">Back</button>`;
+    const modalContent = showModal(`
+        <h3 class="text-lg font-semibold">${title}</h3>
+        <p class="text-sm text-gray-600 my-2">Paste the content from your saved file below.</p>
+        <textarea id="import-data" class="w-full h-64 p-2 border rounded-md font-mono text-xs" placeholder="Paste your saved plan data here..."></textarea>
+        <div class="flex justify-end mt-4 gap-3">
+            ${backButton}
+            <button onclick="hideModal()" class="px-4 py-2 bg-gray-200 rounded-md">Cancel</button>
+            <button id="confirm-import" class="px-4 py-2 bg-indigo-600 text-white rounded-md">Paste & Load</button>
+        </div>`);
+    modalContent.querySelector('#confirm-import').onclick = async () => {
+        const importTextArea = modalContent.querySelector('#import-data');
+        if (!importTextArea.value) {
+            try {
+                if (navigator.clipboard && navigator.clipboard.readText) {
+                    const text = await navigator.clipboard.readText();
+                    importTextArea.value = text;
+                } else {
+                     throw new Error("Clipboard API not available.")
+                }
+            } catch (err) {
+                console.warn('Could not read from clipboard:', err);
+                alert('Could not auto-paste. Please paste the data manually and click again.');
+                return;
+            }
+        }
+        
+        const dataStr = importTextArea.value;
+        if (!dataStr) return;
+
+        try {
+            const newSprintState = JSON.parse(dataStr);
+            if (newSprintState && newSprintState.schedule && newSprintState.tasks) {
+                if(overwriteCurrent) {
+                    newSprintState.sprintId = appState.activeSprintId;
+                    appState.sprints[appState.activeSprintId] = newSprintState;
+                } else {
+                    const newSprintId = `sprint-${Date.now()}`;
+                    newSprintState.sprintId = newSprintId;
+                    appState.sprints[newSprintId] = newSprintState;
+                    appState.activeSprintId = newSprintId;
+                }
+                renderApp();
+                hideModal();
+            } else { alert("Import failed: Invalid data format."); }
+        } catch (e) { alert("Import failed: Could not parse data."); console.error("Import error:", e); }
+    };
+}
+
+function handleExportClick() {
+    const sprint = appState.sprints[appState.activeSprintId];
+    sprint.sprintName = document.querySelector('#sprint-content input').value;
+    const dataStr = JSON.stringify(sprint, null, 2);
+    const modalContent = showModal(`
+        <h3 class="text-lg font-semibold">Export Current Sprint</h3>
+        <p class="text-sm text-gray-600 my-2">Copy the text below and save it in a file (e.g., ${sprint.sprintName.replace(/ /g, '_')}.json).</p>
+        <textarea id="export-data" readonly class="w-full h-64 p-2 border rounded-md font-mono text-xs">${dataStr}</textarea>
+        <div class="flex justify-end mt-4 gap-3">
+            <button id="copy-export-btn" class="px-4 py-2 bg-indigo-600 text-white rounded-md">Copy & Prepare Import</button>
+            <button onclick="hideModal()" class="px-4 py-2 bg-gray-200 rounded-md">Close</button>
+        </div>
+    `);
+    modalContent.querySelector('#copy-export-btn').onclick = (e) => {
+        const textArea = document.getElementById('export-data');
+        textArea.select();
+        document.execCommand('copy');
+        e.target.textContent = 'Copied!';
+        setTimeout(() => {
+            hideModal();
+            handleImportClick(true);
+        }, 1000);
+    };
+}
+
+function handleShareClick() {
+    const sprint = appState.sprints[appState.activeSprintId];
+    sprint.sprintName = document.querySelector('#sprint-content input').value;
+    const dataStr = JSON.stringify(sprint, null, 2);
+    const modalContent = showModal(`
+        <h3 class="text-lg font-semibold">Share Sprint Data</h3>
+        <p class="text-sm text-gray-600 my-2">This is the full JSON data for your sprint. You can copy it to share with a colleague or save it in Google Keep.</p>
+        <textarea id="share-data" readonly class="w-full h-64 p-2 border rounded-md font-mono text-xs">${dataStr}</textarea>
+        <div class="flex justify-end mt-4 gap-3">
+            <button id="copy-share-btn" class="px-4 py-2 bg-indigo-600 text-white rounded-md">Copy Only</button>
+            <button id="copy-keep-btn" class="px-4 py-2 bg-yellow-500 text-white rounded-md">Copy & Open Keep</button>
+            <button onclick="hideModal()" class="px-4 py-2 bg-gray-200 rounded-md">Close</button>
+        </div>
+    `);
+
+    const copyToClipboard = (btn) => {
+        const textArea = modalContent.querySelector('textarea');
+        textArea.select();
+        document.execCommand('copy');
+        btn.textContent = 'Copied!';
+        setTimeout(() => btn.textContent = btn.id === 'copy-share-btn' ? 'Copy Only' : 'Copy & Open Keep', 2000);
+    };
+    
+    modalContent.querySelector('#copy-share-btn').onclick = (e) => copyToClipboard(e.target);
+
+    modalContent.querySelector('#copy-keep-btn').onclick = (e) => {
+        const textArea = modalContent.querySelector('textarea');
+        textArea.select();
+        document.execCommand('copy');
+        e.target.textContent = 'Copied!';
+        const url = `https://keep.google.com/u/0/#NOTE/text=${encodeURIComponent(sprint.sprintName)}&body=${encodeURIComponent(textArea.value)}`;
+        window.open(url, '_blank');
+        setTimeout(() => e.target.textContent = 'Copy & Open Keep', 2000);
+    };
+}
+
+function handleCreateNewBoardClick() {
+    const modalContent = showModal(`
+        <h3 class="text-lg font-semibold">Create New Board</h3>
+        <p class="text-sm text-gray-600 my-2">Enter your ticket details below. Click "+ Add Row" for more tickets.</p>
+        <div class="overflow-x-auto"><table class="w-full text-sm"><thead class="bg-gray-50"><tr class="text-left"><th class="p-2 w-1/5">ID</th><th class="p-2 w-2/5">Title</th><th class="p-2 w-1/5">Type</th><th class="p-2 w-1/5">Points</th></tr></thead><tbody id="new-sprint-table-body"></tbody></table></div>
+        <button id="add-row-btn" class="mt-4 px-3 py-1.5 text-sm font-medium bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200">+ Add Row</button>
+        <div class="flex justify-end mt-6 gap-3"><button onclick="showNewSprintDialog()" class="px-4 py-2 bg-gray-200 rounded-md">Back</button><button id="confirm-create-board" class="px-4 py-2 bg-indigo-600 text-white rounded-md">Create Board</button></div>`);
+    const tableBody = modalContent.querySelector('#new-sprint-table-body');
+    const addRow = () => {
+        const row = document.createElement('tr');
+        row.innerHTML = `
+            <td class="p-1"><input type="text" class="form-input ticket-id" placeholder="NCOP-1234"></td>
+            <td class="p-1"><input type="text" class="form-input ticket-title" placeholder="Task description..."></td>
+            <td class="p-1"><select class="form-input ticket-type"><option value="S" selected>Story</option><option value="B">Bug</option></select></td>
+            <td class="p-1"><input type="number" class="form-input ticket-points" value="1" min="1"></td>`;
+        tableBody.appendChild(row);
+    };
+    modalContent.querySelector('#add-row-btn').onclick = addRow;
+    addRow();
+    modalContent.querySelector('#confirm-create-board').onclick = () => {
+        const parsedTasks = Array.from(tableBody.querySelectorAll('tr')).map(row => ({
+            ticketId: row.querySelector('.ticket-id').value, title: row.querySelector('.ticket-title').value,
+            type: row.querySelector('.ticket-type').value, points: parseInt(row.querySelector('.ticket-points').value, 10)
+        })).filter(t => t.ticketId && t.title && t.points > 0);
+        if (parsedTasks.length === 0) return alert("Please add at least one valid ticket.");
+        const newSprint = createSprintFromParsedTasks(parsedTasks);
+        const newSprintId = `sprint-${Date.now()}`;
+        newSprint.sprintId = newSprintId;
+        newSprint.sprintName = `Sprint ${Object.keys(appState.sprints).length + 1}`;
+        appState.sprints[newSprintId] = newSprint;
+        appState.activeSprintId = newSprintId;
+        hideModal();
+        renderApp();
+    };
+}
+
+function createSprintFromParsedTasks(parsedTasks) {
+    let newSprint = createNewSprintState("New Sprint");
+    newSprint.tasks = {}; 
+    const totalPoints = parsedTasks.reduce((sum, task) => sum + task.points, 0);
+    const totalWorkHours = 53 - 8;
+    const hoursPerPoint = totalPoints > 0 ? totalWorkHours / totalPoints : 0;
+    let taskCounter = 1;
+    parsedTasks.forEach(pt => {
+        const taskIdBase = `t${taskCounter++}`;
+        if (pt.type === 'B') {
+            newSprint.tasks[taskIdBase] = { name: 'Verify Bug', ticketId: pt.ticketId, type: 'verify', totalHours: pt.points * hoursPerPoint };
+        } else {
+            const ticketHours = pt.points * hoursPerPoint;
+            newSprint.tasks[`${taskIdBase}_c`] = { name: 'Create TCs', ticketId: pt.ticketId, type: 'create', totalHours: ticketHours * 0.5 };
+            newSprint.tasks[`${taskIdBase}_e`] = { name: 'Execute TCs', ticketId: pt.ticketId, type: 'execute', totalHours: ticketHours * 0.4 };
+            newSprint.tasks[`${taskIdBase}_v`] = { name: 'C/V Bugs', ticketId: pt.ticketId, type: 'verify', totalHours: ticketHours * 0.1 };
+        }
+    });
+    newSprint.tasks['t_demo'] = { name: 'Demo Prep', ticketId: 'N/A', type: 'demo', totalHours: 8.0 };
+    newSprint.schedule = distributeTasksToSchedule(newSprint.tasks, newSprint.dailyLimits);
+    return newSprint;
+}
+
+function distributeTasksToSchedule(tasks, dailyLimits) {
+    let schedule = {};
+    Object.keys(dayMeta).forEach(d => schedule[d] = []);
+    let taskQueue = Object.entries(tasks).map(([id, t]) => ({ id, ...t, remaining: t.totalHours }));
+    for (const dayId of Object.keys(dayMeta)) {
+        let dayLimit = dailyLimits[dayId];
+        while (dayLimit > 0 && taskQueue.length > 0) {
+            let currentTask = taskQueue[0];
+            const timeToLog = Math.min(dayLimit, currentTask.remaining);
+            let dayTask = schedule[dayId].find(t => t.taskId === currentTask.id);
+            if(dayTask){ dayTask.hours += timeToLog; } 
+            else { schedule[dayId].push({ id: `s_${dayId}_${currentTask.id}`, taskId: currentTask.id, hours: timeToLog, progress: 0, link: null }); }
+            currentTask.remaining -= timeToLog;
+            dayLimit -= timeToLog;
+            if (currentTask.remaining < 0.01) { taskQueue.shift(); }
+        }
+    }
+    return schedule;
+}
+
+function createDefaultSampleSprintState(name) { return JSON.parse(JSON.stringify({sprintId: `sprint-${Date.now()}`, sprintName: name, dailyLimits: { w1d1: 4.0, w1d2: 6.75, w1d3: 5.75, w1d4: 2.75, w1d5: 6.75, w2d1: 6.75, w2d2: 6.75, w2d3: 6.75, w2d4: 6.75, }, tasks: { 't1': { name: 'Demo Prep', ticketId: 'N/A', type: 'demo', totalHours: 8.0 }, 't2': { name: 'Create TCs', ticketId: '10096', type: 'create', totalHours: 11.25 }, 't3': { name: 'Create TCs', ticketId: '9897', type: 'create', totalHours: 6.75 }, 't4': { name: 'Execute TCs', ticketId: '10096', type: 'execute', totalHours: 9.0 }, 't5': { name: 'Execute TCs', ticketId: '9897', type: 'execute', totalHours: 5.4 }, 't6': { name: 'Verify Bug', ticketId: '9853', type: 'verify', totalHours: 4.5 }, 't7': { name: 'C/V Bugs', ticketId: '9897', type: 'verify', totalHours: 1.35 }, 't8': { name: 'Verify Bug', ticketId: '9744', type: 'verify', totalHours: 4.5 }, 't9': { name: 'C/V Bugs', ticketId: '10096', type: 'verify', totalHours: 2.25 }, }, schedule: { 'w1d1': [ { id: 's1', taskId: 't1', hours: 1.6, progress: 0, link: null }, { id: 's2', taskId: 't2', hours: 2.4, progress: 0, link: null } ], 'w1d2': [ { id: 's3', taskId: 't1', hours: 1.6, progress: 0, link: null }, { id: 's4', taskId: 't2', hours: 5.15, progress: 0, link: null } ], 'w1d3': [ { id: 's5', taskId: 't1', hours: 1.6, progress: 0, link: null }, { id: 's6', taskId: 't2', hours: 3.7, progress: 0, link: null }, { id: 's16', taskId: 't3', hours: 0.45, progress: 0, link: null } ], 'w1d4': [ { id: 's7', taskId: 't1', hours: 1.6, progress: 0, link: null }, { id: 's8', taskId: 't3', hours: 1.15, progress: 0, link: null } ], 'w1d5': [ { id: 's9', taskId: 't1', hours: 1.6, progress: 0, link: null }, { id: 's10', taskId: 't3', hours: 5.15, progress: 0, link: null } ], 'w2d1': [ { id: 's11', taskId: 't4', hours: 6.75, progress: 0, link: null } ], 'w2d2': [ { id: 's12', taskId: 't4', hours: 2.25, progress: 0, link: null }, { id: 's13', taskId: 't5', hours: 4.5, progress: 0, link: null } ], 'w2d3': [ { id: 's14', taskId: 't5', hours: 0.9, progress: 0, link: null }, { id: 's15', taskId: 't6', hours: 4.5, progress: 0, link: null }, { id: 's17', taskId: 't7', hours: 1.35, progress: 0, link: null } ], 'w2d4': [ { id: 's18', taskId: 't8', hours: 4.5, progress: 0, link: null }, { id: 's19', taskId: 't9', hours: 2.25, progress: 0, link: null } ] } }));}
+function createNewSprintState(name) { return { sprintId: `sprint-${Date.now()}`, sprintName: name, dailyLimits: { w1d1: 4.0, w1d2: 6.75, w1d3: 5.75, w1d4: 2.75, w1d5: 6.75, w2d1: 6.75, w2d2: 6.75, w2d3: 6.75, w2d4: 6.75, }, tasks: {}, schedule: {} };}
+function handleDeleteSprint() { const sprintName = appState.sprints[appState.activeSprintId].sprintName; if (Object.keys(appState.sprints).length <= 1) { alert("Cannot delete the last sprint."); return; } if (confirm(`Are you sure you want to permanently delete the sprint "${sprintName}"?`)) { delete appState.sprints[appState.activeSprintId]; appState.activeSprintId = Object.keys(appState.sprints)[0] || null; renderApp(); }}
+function updateSprintName(newName) { if (appState.sprints[appState.activeSprintId]) { appState.sprints[appState.activeSprintId].sprintName = newName; renderTabs(); saveState(); } }
+function calculateOverallProgress(sprint) { if (!sprint || !sprint.schedule) return 0; const { totalWeightedProgress, totalHours } = Object.values(sprint.schedule).flat().reduce((acc, task) => { acc.totalWeightedProgress += task.hours * task.progress; acc.totalHours += task.hours; return acc; }, { totalWeightedProgress: 0, totalHours: 0 }); return totalHours > 0 ? (totalWeightedProgress / totalHours).toFixed(0) : 0; }
+function findScheduledTaskById(id) { const sprint = appState.sprints[appState.activeSprintId]; for (const dayId in sprint.schedule) { const scheduledTask = sprint.schedule[dayId].find(t => t.id === id); if (scheduledTask) return { dayId, scheduledTask }; } return {}; }
+function moveTime(scheduledTaskId, destinationDayId, hours) { const sprint = appState.sprints[appState.activeSprintId]; const { dayId: originDayId, scheduledTask: origin } = findScheduledTaskById(scheduledTaskId); if (!origin) return; const destTasks = sprint.schedule[destinationDayId] || []; const taskToDisplace = destTasks.find(t => sprint.tasks[t.taskId].type !== 'demo' && t.taskId !== origin.taskId); if (!taskToDisplace) return alert(`No displaceable task on ${dayMeta[destinationDayId].name}.`); origin.hours -= hours; let dest = destTasks.find(t => t.taskId === origin.taskId); if (dest) { dest.hours += hours; } else { const newScheduledTask = { ...origin, id: `s${Date.now()}`, hours }; sprint.schedule[destinationDayId].push(newScheduledTask); } taskToDisplace.hours -= hours; let displacedDest = sprint.schedule[originDayId].find(t => t.taskId === taskToDisplace.taskId); if (displacedDest) { displacedDest.hours += hours; } else { const newDisplacedTask = { ...taskToDisplace, id: `s${Date.now()}`, hours }; sprint.schedule[originDayId].push(newDisplacedTask); } for (const day in sprint.schedule) sprint.schedule[day] = sprint.schedule[day].filter(t => t.hours > 0.01); renderApp(); }
+function handleEditClick(scheduledId){ const sprint = appState.sprints[appState.activeSprintId]; const { dayId, scheduledTask } = findScheduledTaskById(scheduledId); const taskInfo = sprint.tasks[scheduledTask.taskId]; const otherDaysOptions = Object.keys(dayMeta).filter(d => d !== dayId).map(d => `<option value="${d}">${dayMeta[d].name} (W${dayMeta[d].week})</option>`).join(''); const modalContent = showModal(`<h3 class="text-lg font-semibold text-gray-800 mb-4">Edit/Move Task Time</h3> <p class="mb-4 text-sm text-gray-600">Move time from <strong>${taskInfo.name} (${taskInfo.ticketId})</strong> on ${dayMeta[dayId].name}.</p> <div class="mb-4"><label for="hoursToMove" class="block text-sm font-medium">Hours to Move</label><input type="number" id="hoursToMove" value="1.0" min="0.25" max="${scheduledTask.hours.toFixed(2)}" step="0.25" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm"></div> <div class="mb-6"><label for="destinationDay" class="block text-sm font-medium">Destination Day</label><select id="destinationDay" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm">${otherDaysOptions}</select></div> <div class="flex justify-end gap-3"><button onclick="hideModal()" class="px-4 py-2 bg-gray-200 rounded-md">Cancel</button><button id="confirm-edit" class="px-4 py-2 bg-indigo-600 text-white rounded-md">Confirm Move</button></div>`); modalContent.querySelector('#confirm-edit').onclick = () => { const hours = parseFloat(document.getElementById('hoursToMove').value); if (hours > 0 && hours <= scheduledTask.hours) { moveTime(scheduledId, document.getElementById('destinationDay').value, hours); hideModal(); } else { alert('Invalid hours.'); } }; }
+function handleLinkClick(scheduledId){ const { scheduledTask } = findScheduledTaskById(scheduledId); const modalContent = showModal(`<h3 class="text-lg font-semibold mb-4">Add/Edit Link</h3> <div class="mb-4"><label for="linkUrl" class="block text-sm font-medium">Jira/Ticket URL</label><input type="url" id="linkUrl" value="${scheduledTask.link || ''}" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm"></div> <div class="flex justify-end gap-3"><button onclick="hideModal()" class="px-4 py-2 bg-gray-200 rounded-md">Cancel</button><button id="confirm-link" class="px-4 py-2 bg-indigo-600 text-white rounded-md">Save</button></div>`); modalContent.querySelector('#confirm-link').onclick = () => { scheduledTask.link = document.getElementById('linkUrl').value; renderApp(); hideModal(); }; }
+async function handleSuggestionClick(scheduledId){ const sprint = appState.sprints[appState.activeSprintId]; const { scheduledTask } = findScheduledTaskById(scheduledId); const ti = sprint.tasks[scheduledTask.taskId]; const modalContent = showModal(`<div class="flex justify-between items-center mb-4"><h3 class="text-lg font-semibold">Suggestions for ${ti.name}</h3><button onclick="hideModal()" class="text-2xl">&times;</button></div> <div id="modal-body" class="text-gray-700"><p class="text-center animate-pulse">🤖 Generating suggestions...</p></div>`); const prompt = `Provide a brief, actionable checklist for a software tester performing: "${ti.name} for ticket ${ti.ticketId}". Format as a simple bulleted list.`; try { const text = await callGeminiAPI(prompt); modalContent.querySelector('#modal-body').innerHTML = `<ul>${text.replace(/\* (.*?)(?=\n\* |$)/g, '<li class="mb-2 ml-4 list-disc">$1</li>').replace(/\n/g, '')}</ul>`; } catch (e) { modalContent.querySelector('#modal-body').innerHTML = `<p class="text-red-600">Could not generate suggestions: ${e.message}</p>`; } }
+async function handleRiskAssessmentClick() { const sprint = appState.sprints[appState.activeSprintId]; if (!sprint || Object.keys(sprint.tasks).length <= 1) { return alert("No tasks in the current sprint to assess."); } const modalContent = showModal(`<div class="flex justify-between items-center mb-4"><h3 class="text-lg font-semibold">✨ Sprint Risk Assessment</h3><button onclick="hideModal()" class="text-2xl">&times;</button></div><div id="modal-body" class="text-gray-700"><p class="text-center animate-pulse">🤖 Analyzing sprint tasks for potential risks...</p></div>`); let taskList = ""; for (const taskId in sprint.tasks) { const task = sprint.tasks[taskId]; taskList += `- ${task.name} (${task.ticketId}): ${task.totalHours.toFixed(1)} hours\n`; } const prompt = `As an experienced Agile project manager, analyze the following list of tasks and their estimated hours for a two-week sprint. Identify potential risks, dependencies, or ambiguities. Provide a concise, bulleted list of your findings. Tasks:\n\n${taskList}`; try { const text = await callGeminiAPI(prompt); modalContent.querySelector('#modal-body').innerHTML = `<ul class="list-disc pl-5 space-y-2">${text.replace(/\* (.*?)(?=\n\* |$)/g, '<li>$1</li>').replace(/\n/g, '')}</ul>`; } catch (e) { modalContent.querySelector('#modal-body').innerHTML = `<p class="text-red-600">Could not generate assessment: ${e.message}</p>`; } }
+async function callGeminiAPI(prompt) { const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ role: "user", parts: [{ text: prompt }] }] }) }); if (!res.ok) throw new Error(`API error ${res.status}`); const result = await res.json(); const text = result.candidates?.[0]?.content?.parts?.[0]?.text; if (text) { return text; } else { throw new Error("No content received from API."); } }
+function handleProgressClick(scheduledId){ const { scheduledTask } = findScheduledTaskById(scheduledId); const modalContent = showModal(`<h3 class="text-lg font-semibold mb-4">Update Progress</h3> <div class="mb-4"><label for="progressValue" class="block text-sm font-medium">Completion: <span id="progress-label">${scheduledTask.progress}%</span></label><input type="range" id="progressValue" value="${scheduledTask.progress}" min="0" max="100" step="5" class="mt-1 w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"></div> <div class="flex justify-end gap-3"><button onclick="hideModal()" class="px-4 py-2 bg-gray-200 rounded-md">Cancel</button><button id="confirm-progress" class="px-4 py-2 bg-indigo-600 text-white rounded-md">Save</button></div>`); const slider = modalContent.querySelector('#progressValue'); const label = modalContent.querySelector('#progress-label'); slider.oninput = () => label.textContent = `${slider.value}%`; modalContent.querySelector('#confirm-progress').onclick = () => { scheduledTask.progress = parseInt(slider.value, 10); renderApp(); hideModal();}; }
+
+window.onload = () => {
+    loadState();
+    renderApp();
+    document.body.addEventListener('click', e => { if (e.target.matches('.modal-overlay')) hideModal(); });
+};
+</script>
+</body>
+</html>
