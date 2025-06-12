@@ -11,7 +11,9 @@
         .task-card {
             display: flex; flex-direction: column; padding: 8px 12px; border-radius: 8px;
             margin-bottom: 8px; border: 1px solid; box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
+            cursor: grab;
         }
+        .task-card:active { cursor: grabbing; }
         .task-create { background-color: #dcfce7; border-color: #bbf7d0; color: #166534; }
         .task-execute { background-color: #dbeafe; border-color: #bfdbfe; color: #1e40af; }
         .task-verify { background-color: #fee2e2; border-color: #fecaca; color: #991b1b; }
@@ -22,10 +24,10 @@
         .task-verify .action-btn { background-color: #fca5a5; color: #7f1d1d; } .task-verify .action-btn:hover { background-color: #f87171; }
         .task-demo .action-btn { background-color: #fde047; color: #713f12; } .task-demo .action-btn:hover { background-color: #facc15; }
         
-        .progress-bar-container { margin-top: 8px; position: relative; }
+        .progress-bar-container { margin-top: 8px; position: relative; cursor: pointer; }
         .progress-bar-bg { background-color: rgba(0,0,0,0.1); border-radius: 4px; height: 14px; overflow: hidden;}
         .progress-bar-fg { height: 100%; border-radius: 4px; transition: width 0.3s; pointer-events: none; background-color: #6366f1; }
-        .progress-bar-text { position: absolute; top: 0; left: 0; right: 0; bottom: 0; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 600; color: white; text-shadow: 1px 1px 1px rgba(0,0,0,0.2); }
+        .progress-bar-text { position: absolute; top: 0; left: 0; right: 0; bottom: 0; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 600; color: white; text-shadow: 1px 1px 1px rgba(0,0,0,0.2); pointer-events: none; }
         
         .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(0, 0, 0, 0.6); display: flex; align-items: center; justify-content: center; z-index: 50; transition: opacity 0.3s; }
         .modal-content { background-color: white; padding: 24px; border-radius: 8px; max-width: 800px; width: 95%; max-height: 90vh; overflow-y: auto; transform: scale(0.95); transition: transform 0.3s;}
@@ -47,7 +49,7 @@
     <div id="generic-modal" class="modal-overlay hidden opacity-0"><div class="modal-content"></div></div>
     
 <script>
-const APP_DATA_KEY = 'multiSprintPlannerState_v9';
+const APP_DATA_KEY = 'multiSprintPlannerState_v10';
 let appState = { activeSprintId: null, sprints: {} };
 
 const dayMeta = {
@@ -119,11 +121,13 @@ function renderTabs() {
     tabsContainer.innerHTML = '';
     Object.keys(appState.sprints).forEach(sprintId => {
         const sprint = appState.sprints[sprintId];
-        const tab = document.createElement('div');
-        tab.className = `tab ${sprintId === appState.activeSprintId ? 'active' : ''}`;
-        tab.textContent = sprint.sprintName;
-        tab.onclick = () => switchTab(sprintId);
-        tabsContainer.appendChild(tab);
+        if (sprint && typeof sprint.sprintName !== 'undefined') {
+            const tab = document.createElement('div');
+            tab.className = `tab ${sprintId === appState.activeSprintId ? 'active' : ''}`;
+            tab.textContent = sprint.sprintName;
+            tab.onclick = () => switchTab(sprintId);
+            tabsContainer.appendChild(tab);
+        }
     });
     
     const addTabButton = document.createElement('button');
@@ -224,13 +228,6 @@ function renderPlanner(sprint) {
     week2Container.innerHTML = generateWeekHtml(Object.keys(dayMeta).filter(d => dayMeta[d].week === 2), sprint);
 }
 
-function extractTicketIdFromUrl(url) {
-    if (!url) return 'Add Sub-tasks';
-    const jiraRegex = /\/browse\/([A-Z0-9]+-\d+)/;
-    const match = url.match(jiraRegex);
-    return match ? match[1] : 'View Sub-tasks';
-}
-
 function generateWeekHtml(days, sprint) {
     const headHtml = days.map(dayId => `<th class="p-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">${dayMeta[dayId].name} (${sprint.dailyLimits[dayId]}h)</th>`).join('');
     const bodyHtml = '<tr>' + days.map(dayId => {
@@ -241,19 +238,18 @@ function generateWeekHtml(days, sprint) {
             const progress = calculateTaskProgress(st);
             const doneLabel = progress === 100 ? `<div class="progress-bar-text">DONE</div>` : `<div class="progress-bar-text">${progress}%</div>`;
             return `
-                <div class="task-card ${'task-' + ti.type}" data-scheduled-id="${st.id}">
+                <div class="task-card ${'task-' + ti.type}" data-scheduled-id="${st.id}" draggable="true">
                     <div class="flex justify-between items-start">
                         <div class="flex-grow"><span class="font-bold text-sm">${ti.name}</span><span class="block text-xs opacity-80">${ti.ticketId}</span><span class="block text-sm font-bold mt-1">${st.hours.toFixed(2)}h</span></div>
                         <div class="flex flex-col gap-1.5">
                             <button class="action-btn" data-action="edit" title="Edit/Move Task Time"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg></button>
                             <button class="action-btn" data-action="checklist" title="Manage Sub-tasks"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 6.75h7.5M8.25 12h7.5m-7.5 5.25h7.5M3.75 6.75h.007v.008H3.75V6.75zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zM3.75 12h.007v.008H3.75V12zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm-.375 5.25h.007v.008H3.75v-.008zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" /></svg></button>
-                            <button class="action-btn" data-action="suggest" title="Get AI Suggestions"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8V4H8"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/></svg></button>
                         </div>
                     </div>
-                    <div class="progress-bar-container"><div class="progress-bar-bg"><div class="progress-bar-fg" style="width: ${progress}%;"></div>${doneLabel}</div></div>
+                    <div class="progress-bar-container" data-action="progress"><div class="progress-bar-bg"><div class="progress-bar-fg" style="width: ${progress}%;"></div>${doneLabel}</div></div>
                 </div>`;
         }).join('');
-        return `<td class="p-2 align-top">${taskCards}</td>`;
+        return `<td class="p-2 align-top" data-day-id="${dayId}">${taskCards}</td>`;
     }).join('') + '</tr>';
     return `<table class="w-full min-w-[600px]"><thead class="bg-gray-50"><tr>${headHtml}</tr></thead><tbody class="divide-y divide-gray-200">${bodyHtml}</tbody></table>`;
 }
@@ -261,11 +257,13 @@ function generateWeekHtml(days, sprint) {
 function addSprintContentEventListeners() {
     const container = document.getElementById('sprint-content');
     container.addEventListener('click', handleCardClick);
+    container.addEventListener('dragstart', handleDragStart);
+    container.addEventListener('dragover', handleDragOver);
+    container.addEventListener('drop', handleDrop);
     document.getElementById('import-current-btn').onclick = () => handleImportClick(true);
     document.getElementById('export-current-btn').onclick = handleExportClick;
     document.getElementById('share-btn').onclick = handleShareClick;
     document.getElementById('delete-sprint-btn').onclick = handleDeleteSprint;
-    document.getElementById('assess-risks-btn').onclick = handleRiskAssessmentClick;
 }
 
 function handleCardClick(e) {
@@ -276,7 +274,7 @@ function handleCardClick(e) {
     const scheduledId = card.dataset.scheduledId;
     if (action === 'edit') handleEditClick(scheduledId);
     if (action === 'checklist') handleChecklistClick(scheduledId);
-    if (action === 'suggest') handleSuggestionClick(scheduledId);
+    if (action === 'progress') handleProgressClick(scheduledId);
 }
 
 function showModal(content) {
@@ -381,7 +379,7 @@ function handleExportClick() {
     };
 }
 
-// FIX: Restored handleShareClick
+// FIX: Restore all missing functions
 function handleShareClick() {
     const sprint = appState.sprints[appState.activeSprintId];
     sprint.sprintName = document.querySelector('#sprint-content input').value;
@@ -418,7 +416,6 @@ function handleShareClick() {
     };
 }
 
-
 async function handlePasteAndCreateClick() {
     const modalContent = showModal(`
         <h3 class="text-lg font-semibold">✨ Paste & Create Sprint</h3>
@@ -446,7 +443,9 @@ async function handlePasteAndCreateClick() {
         createButton.innerHTML = '🤖 AI is Building...';
 
         try {
-            const parsedTasks = await parseTicketsWithAI(ticketText);
+            const parsedTasks = parsePastedText(ticketText);
+            if(parsedTasks.length === 0) throw new Error("Could not parse any valid tasks from the text.");
+            
             const newSprint = createSprintFromParsedTasks(parsedTasks);
             const newSprintId = `sprint-${Date.now()}`;
             newSprint.sprintId = newSprintId;
@@ -465,32 +464,27 @@ async function handlePasteAndCreateClick() {
     };
 }
 
-async function parseTicketsWithAI(text) {
-    const prompt = `Parse the following CSV-like text into a JSON array of tasks. The columns can be tab or space-separated. The columns are ID, Title, Type, Points. 'S' in Type means Story. 'B' in Type means Bug. The output objects must have these exact keys: 'ticketId' (string), 'title' (string), 'type' (string 'S' or 'B'), and 'points' (number). Ignore any header row. Text to parse: \n\n${text}`;
-    
-    const payload = {
-      contents: [{ role: "user", parts: [{ text: prompt }] }],
-      generationConfig: { responseMimeType: "application/json" }
-    };
+function parsePastedText(text) {
+    const lines = text.split('\n').filter(line => line.trim() !== '');
+    const tasks = [];
+    // Regex to capture ID, Title, Type (S or B), and Points (number followed by P)
+    const lineRegex = /^([A-Z0-9-]+)\s+(.*?)\s+([SB])\s+(\d+)/i;
 
-    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=`, { 
-        method: 'POST', 
-        headers: { 'Content-Type': 'application/json' }, 
-        body: JSON.stringify(payload) 
-    });
-    if (!res.ok) throw new Error(`AI API error ${res.status}`);
-    const result = await res.json();
-    let jsonText = result.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (!jsonText) throw new Error("AI did not return valid data.");
-
-    if (jsonText.startsWith("```json")) {
-        jsonText = jsonText.substring(7, jsonText.length - 3).trim();
-    } else if (jsonText.startsWith("```")) {
-         jsonText = jsonText.substring(3, jsonText.length - 3).trim();
+    for (const line of lines) {
+        const parts = line.split('\t'); // Try splitting by tab first for Excel data
+        if (parts.length >= 4) {
+            const id = parts[0].trim();
+            const title = parts[1].trim();
+            const type = parts[2].trim().toUpperCase();
+            const points = parseInt(parts[3], 10);
+            if (id && title && (type === 'S' || type === 'B') && !isNaN(points)) {
+                tasks.push({ ticketId: id, title: title, type: type, points: points });
+            }
+        }
     }
-    
-    return JSON.parse(jsonText);
+    return tasks;
 }
+
 
 function handleCreateNewBoardClick() {
     const modalContent = showModal(`
@@ -576,15 +570,18 @@ function createNewSprintState(name) { return { sprintId: `sprint-${Date.now()}`,
 function handleDeleteSprint() { const sprintName = appState.sprints[appState.activeSprintId].sprintName; if (Object.keys(appState.sprints).length <= 1) { alert("Cannot delete the last sprint."); return; } if (confirm(`Are you sure you want to permanently delete the sprint "${sprintName}"?`)) { delete appState.sprints[appState.activeSprintId]; appState.activeSprintId = Object.keys(appState.sprints)[0] || null; renderApp(); }}
 function updateSprintName(newName) { if (appState.sprints[appState.activeSprintId]) { appState.sprints[appState.activeSprintId].sprintName = newName; renderTabs(); saveState(); } }
 function calculateOverallProgress(sprint) { if (!sprint || !sprint.schedule) return 0; const { totalWeightedProgress, totalHours } = Object.values(sprint.schedule).flat().reduce((acc, task) => { acc.totalWeightedProgress += task.hours * calculateTaskProgress(task); acc.totalHours += task.hours; return acc; }, { totalWeightedProgress: 0, totalHours: 0 }); return totalHours > 0 ? (totalWeightedProgress / totalHours).toFixed(0) : 0; }
-function calculateTaskProgress(scheduledTask) { if (!scheduledTask.subTasks || scheduledTask.subTasks.length === 0) return 0; const doneCount = scheduledTask.subTasks.filter(st => st.done).length; return Math.round((doneCount / scheduledTask.subTasks.length) * 100); }
 function findScheduledTaskById(id) { const sprint = appState.sprints[appState.activeSprintId]; for (const dayId in sprint.schedule) { const scheduledTask = sprint.schedule[dayId].find(t => t.id === id); if (scheduledTask) return { dayId, scheduledTask }; } return {}; }
 function moveTime(scheduledTaskId, destinationDayId, hours) { const sprint = appState.sprints[appState.activeSprintId]; const { dayId: originDayId, scheduledTask: origin } = findScheduledTaskById(scheduledTaskId); if (!origin) return; const destTasks = sprint.schedule[destinationDayId] || []; const taskToDisplace = destTasks.find(t => sprint.tasks[t.taskId].type !== 'demo' && t.taskId !== origin.taskId); if (!taskToDisplace) return alert(`No displaceable task on ${dayMeta[destinationDayId].name}.`); origin.hours -= hours; let dest = destTasks.find(t => t.taskId === origin.taskId); if (dest) { dest.hours += hours; } else { const newScheduledTask = { ...origin, id: `s${Date.now()}`, hours }; sprint.schedule[destinationDayId].push(newScheduledTask); } taskToDisplace.hours -= hours; let displacedDest = sprint.schedule[originDayId].find(t => t.taskId === taskToDisplace.taskId); if (displacedDest) { displacedDest.hours += hours; } else { const newDisplacedTask = { ...taskToDisplace, id: `s${Date.now()}`, hours }; sprint.schedule[originDayId].push(newDisplacedTask); } for (const day in sprint.schedule) sprint.schedule[day] = sprint.schedule[day].filter(t => t.hours > 0.01); renderApp(); }
 function handleEditClick(scheduledId){ const sprint = appState.sprints[appState.activeSprintId]; const { dayId, scheduledTask } = findScheduledTaskById(scheduledId); const taskInfo = sprint.tasks[scheduledTask.taskId]; const otherDaysOptions = Object.keys(dayMeta).filter(d => d !== dayId).map(d => `<option value="${d}">${dayMeta[d].name} (W${dayMeta[d].week})</option>`).join(''); const modalContent = showModal(`<h3 class="text-lg font-semibold text-gray-800 mb-4">Edit/Move Task Time</h3> <p class="mb-4 text-sm text-gray-600">Move time from <strong>${taskInfo.name} (${taskInfo.ticketId})</strong> on ${dayMeta[dayId].name}.</p> <div class="mb-4"><label for="hoursToMove" class="block text-sm font-medium">Hours to Move</label><input type="number" id="hoursToMove" value="1.0" min="0.25" max="${scheduledTask.hours.toFixed(2)}" step="0.25" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm"></div> <div class="mb-6"><label for="destinationDay" class="block text-sm font-medium">Destination Day</label><select id="destinationDay" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm">${otherDaysOptions}</select></div> <div class="flex justify-end gap-3"><button onclick="hideModal()" class="px-4 py-2 bg-gray-200 rounded-md">Cancel</button><button id="confirm-edit" class="px-4 py-2 bg-indigo-600 text-white rounded-md">Confirm Move</button></div>`); modalContent.querySelector('#confirm-edit').onclick = () => { const hours = parseFloat(document.getElementById('hoursToMove').value); if (hours > 0 && hours <= scheduledTask.hours) { moveTime(scheduledId, document.getElementById('destinationDay').value, hours); hideModal(); } else { alert('Invalid hours.'); } }; }
 function handleChecklistClick(scheduledId) { const { scheduledTask } = findScheduledTaskById(scheduledId); const taskInfo = appState.sprints[appState.activeSprintId].tasks[scheduledTask.taskId]; if (!scheduledTask.subTasks) scheduledTask.subTasks = []; let subTasksHtml = scheduledTask.subTasks.map((sub, index) => ` <div class="flex items-center gap-2 mb-2"> <input type="checkbox" id="subtask-${index}" class="subtask-checkbox h-4 w-4 rounded" ${sub.done ? 'checked' : ''} data-index="${index}"> <input type="text" value="${sub.text}" class="form-input flex-grow subtask-text" data-index="${index}" placeholder="Sub-task or link..."> </div> `).join(''); const modalContent = showModal(`<h3 class="text-lg font-semibold mb-4">Sub-task Checklist for ${taskInfo.name} (${taskInfo.ticketId})</h3> <div id="subtask-list">${subTasksHtml}</div> <button id="add-subtask-btn" class="mt-4 px-3 py-1.5 text-sm font-medium bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200">+ Add Sub-task</button> <div class="flex justify-end mt-6"><button onclick="hideModal()" class="px-4 py-2 bg-indigo-600 text-white rounded-md">Done</button></div>`); const listEl = modalContent.querySelector('#subtask-list'); const addSubtaskRow = (sub = { text: '', done: false }) => { const index = scheduledTask.subTasks.length; scheduledTask.subTasks.push(sub); const div = document.createElement('div'); div.className = "flex items-center gap-2 mb-2"; div.innerHTML = `<input type="checkbox" id="subtask-${index}" class="subtask-checkbox h-4 w-4 rounded" ${sub.done ? 'checked' : ''} data-index="${index}"> <input type="text" value="${sub.text}" class="form-input flex-grow subtask-text" data-index="${index}" placeholder="Sub-task or link...">`; listEl.appendChild(div); }; modalContent.querySelector('#add-subtask-btn').onclick = () => addSubtaskRow(); listEl.addEventListener('change', e => { if (e.target.classList.contains('subtask-checkbox')) { const index = e.target.dataset.index; scheduledTask.subTasks[index].done = e.target.checked; renderApp(); } if (e.target.classList.contains('subtask-text')) { const index = e.target.dataset.index; scheduledTask.subTasks[index].text = e.target.value; saveState(); } }); }
-function handleProgressClick(scheduledId){ const { scheduledTask } = findScheduledTaskById(scheduledId); const modalContent = showModal(`<h3 class="text-lg font-semibold mb-4">Update Progress</h3> <div class="mb-4"><label for="progressValue" class="block text-sm font-medium">Completion: <span id="progress-label">${calculateTaskProgress(scheduledTask)}%</span></label><input type="range" id="progressValue" value="${calculateTaskProgress(scheduledTask)}" min="0" max="100" step="5" class="mt-1 w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer" disabled></div><p class="text-xs text-gray-500">Progress is calculated automatically from the sub-task checklist.</p><div class="flex justify-end gap-3"><button onclick="hideModal()" class="px-4 py-2 bg-gray-200 rounded-md">Close</button></div>`); }
-async function handleSuggestionClick(scheduledId){ const sprint = appState.sprints[appState.activeSprintId]; const { scheduledTask } = findScheduledTaskById(scheduledId); const ti = sprint.tasks[scheduledTask.taskId]; const modalContent = showModal(`<div class="flex justify-between items-center mb-4"><h3 class="text-lg font-semibold">Suggestions for ${ti.name}</h3><button onclick="hideModal()" class="text-2xl">&times;</button></div> <div id="modal-body" class="text-gray-700"><p class="text-center animate-pulse">🤖 Generating suggestions...</p></div>`); const prompt = `Provide a brief, actionable checklist for a software tester performing: "${ti.name} for ticket ${ti.ticketId}". Format as a simple bulleted list.`; try { const text = await callGeminiAPI(prompt); modalContent.querySelector('#modal-body').innerHTML = `<ul>${text.replace(/\* (.*?)(?=\n\* |$)/g, '<li class="mb-2 ml-4 list-disc">$1</li>').replace(/\n/g, '')}</ul>`; } catch (e) { modalContent.querySelector('#modal-body').innerHTML = `<p class="text-red-600">Could not generate suggestions: ${e.message}</p>`; } }
 async function handleRiskAssessmentClick() { const sprint = appState.sprints[appState.activeSprintId]; if (!sprint || Object.keys(sprint.tasks).length <= 1) { return alert("No tasks in the current sprint to assess."); } const modalContent = showModal(`<div class="flex justify-between items-center mb-4"><h3 class="text-lg font-semibold">✨ Sprint Risk Assessment</h3><button onclick="hideModal()" class="text-2xl">&times;</button></div><div id="modal-body" class="text-gray-700"><p class="text-center animate-pulse">🤖 Analyzing sprint tasks for potential risks...</p></div>`); let taskList = ""; for (const taskId in sprint.tasks) { const task = sprint.tasks[taskId]; taskList += `- ${task.name} (${task.ticketId}): ${task.totalHours.toFixed(1)} hours\n`; } const prompt = `As an experienced Agile project manager, analyze the following list of tasks and their estimated hours for a two-week sprint. Identify potential risks, dependencies, or ambiguities. Provide a concise, bulleted list of your findings. Tasks:\n\n${taskList}`; try { const text = await callGeminiAPI(prompt); modalContent.querySelector('#modal-body').innerHTML = `<ul class="list-disc pl-5 space-y-2">${text.replace(/\* (.*?)(?=\n\* |$)/g, '<li>$1</li>').replace(/\n/g, '')}</ul>`; } catch (e) { modalContent.querySelector('#modal-body').innerHTML = `<p class="text-red-600">Could not generate assessment: ${e.message}</p>`; } }
 async function callGeminiAPI(prompt) { const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ role: "user", parts: [{ text: prompt }] }] }) }); if (!res.ok) throw new Error(`API error ${res.status}`); const result = await res.json(); const text = result.candidates?.[0]?.content?.parts?.[0]?.text; if (text) { return text; } else { throw new Error("No content received from API."); } }
+function calculateTaskProgress(scheduledTask) { if (!scheduledTask.subTasks || scheduledTask.subTasks.length === 0) return 0; const doneCount = scheduledTask.subTasks.filter(st => st.done).length; return Math.round((doneCount / scheduledTask.subTasks.length) * 100); }
+function handleProgressClick(scheduledId){ const { scheduledTask } = findScheduledTaskById(scheduledId); handleChecklistClick(scheduledId); }
+function handleDragStart(e) { const card = e.target.closest('.task-card'); if (card) { e.dataTransfer.setData('text/plain', card.dataset.scheduledId); setTimeout(() => card.style.opacity = '0.5', 0); } }
+function handleDragOver(e) { e.preventDefault(); }
+function handleDrop(e) { e.preventDefault(); const targetCard = e.target.closest('.task-card'); document.querySelectorAll('.task-card').forEach(c => c.style.opacity = '1'); const sourceScheduledId = e.dataTransfer.getData('text/plain'); if (targetCard) { const targetScheduledId = targetCard.dataset.scheduledId; if (sourceScheduledId !== targetScheduledId) { swapTasks(sourceScheduledId, targetScheduledId); } } }
+function swapTasks(sourceId, targetId) { const sprint = appState.sprints[appState.activeSprintId]; const sourceInfo = findScheduledTaskById(sourceId); const targetInfo = findScheduledTaskById(targetId); if (!sourceInfo || !targetInfo) return; const sourceIndex = sprint.schedule[sourceInfo.dayId].findIndex(t => t.id === sourceId); const targetIndex = sprint.schedule[targetInfo.dayId].findIndex(t => t.id === targetId); const temp = sprint.schedule[sourceInfo.dayId][sourceIndex]; sprint.schedule[sourceInfo.dayId][sourceIndex] = sprint.schedule[targetInfo.dayId][targetIndex]; sprint.schedule[targetInfo.dayId][targetIndex] = temp; renderApp(); }
 
 window.onload = () => {
     loadState();
