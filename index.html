@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Advanced Multi-Sprint Planner (Refactored)</title>
+    <title>Advanced Interactive Sprint Planner</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
@@ -36,8 +36,84 @@
         .tab { padding: 8px 16px; cursor: pointer; border-bottom: 2px solid transparent; white-space: nowrap; }
         .tab.active { border-bottom-color: #4f46e5; color: #4f46e5; font-weight: 600; }
         .form-input { width: 100%; padding: 6px 8px; border: 1px solid #d1d5db; border-radius: 4px; font-size: 14px; }
-        .capacity-edit { cursor: pointer; text-decoration: underline dashed; transition: color 0.2s, background-color 0.2s; padding: 2px 4px; border-radius: 4px;}
-        .capacity-edit:hover { background-color: #eef2ff; color: #4338ca; }
+        .capacity-display.adjusted { background-color: #fef9c3 !important; border-color: #fef08a !important; }
+        .capacity-edit { cursor: pointer; transition: color 0.2s, background-color 0.2s; }
+        .day-off-full { background-color: #f3f4f6; }
+        .day-off-half { background-color: #f3f4f6; }
+        .day-off-label { font-size: 10px; font-weight: bold; color: #ef4444; text-transform: uppercase; }
+        
+        .day-off-toggle {
+            position: relative;
+            width: 110px;
+            height: 32px;
+            border-radius: 9999px;
+            display: flex;
+            align-items: center;
+            border: 1px solid #d1d5db;
+            transition: background-color 0.3s, border-color 0.3s;
+        }
+        .day-off-toggle .day-off-toggle-label {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 11px;
+            font-weight: 600;
+            color: white;
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+
+        .day-off-toggle[data-state="full"] { background-color: #ef4444; border-color: #dc2626; }
+        .day-off-toggle[data-state="full"] .day-off-toggle-label { opacity: 1; }
+        .day-off-toggle[data-state="half"] { background-color: #22c55e; border-color: #16a34a; }
+        .day-off-toggle[data-state="half"] .day-off-toggle-label { opacity: 1; }
+        .day-off-toggle[data-state="none"] { background-color: #e5e7eb; }
+
+        .day-off-toggle-thumb {
+            position: absolute;
+            width: 28px;
+            height: 28px;
+            background-color: white;
+            border-radius: 9999px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            transition: transform 0.2s ease-in-out;
+            top: 1px;
+        }
+        .day-off-toggle[data-state="full"] .day-off-toggle-thumb { transform: translateX(3px); }
+        .day-off-toggle[data-state="none"] .day-off-toggle-thumb { transform: translateX(40px); }
+        .day-off-toggle[data-state="half"] .day-off-toggle-thumb { transform: translateX(77px); }
+
+        .day-off-toggle-section {
+            flex: 1;
+            height: 100%;
+            cursor: pointer;
+            z-index: 10;
+        }
+        
+        [title]:hover::after {
+            content: attr(title);
+            position: absolute;
+            background-color: #1f2937;
+            color: #fff;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            white-space: nowrap;
+            z-index: 1000;
+            transform: translate(10px, -30px);
+            pointer-events: none;
+        }
+        .btn-gradient {
+            background-image: linear-gradient(to right, #4f46e5, #7c3aed);
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px 0 rgba(124, 58, 237, 0.35);
+        }
+        .btn-gradient:hover {
+             background-image: linear-gradient(to right, #7c3aed, #4f46e5);
+             box-shadow: 0 6px 20px 0 rgba(124, 58, 237, 0.45);
+        }
     </style>
 </head>
 <body class="p-4 sm:p-6 md:p-8">
@@ -53,16 +129,22 @@
     
 <script>
 // --- GLOBAL STATE & CONSTANTS ---
-const APP_DATA_KEY = 'multiSprintPlannerState_v25_bug_summary_fix';
+const APP_DATA_KEY = 'multiSprintPlannerState_v45_dynamic_alloc';
 let appState = { activeSprintId: null, sprints: {} };
 
 const dayMeta = {
     w1d1: { week: 1, name: 'Monday' }, w1d2: { week: 1, name: 'Tuesday' }, w1d3: { week: 1, name: 'Wednesday' },
     w1d4: { week: 1, name: 'Thursday' }, w1d5: { week: 1, name: 'Friday' },
     w2d1: { week: 2, name: 'Monday' }, w2d2: { week: 2, name: 'Tuesday' }, w2d3: { week: 2, name: 'Wednesday' },
-    w2d4: { week: 2, name: 'Thursday' }
+    w2d4: { week: 2, name: 'Thursday' }, w2d5: { week: 2, name: 'Friday' }
+};
+const dayOffsets = {
+    w1d1: 0, w1d2: 1, w1d3: 2, w1d4: 3, w1d5: 4,
+    w2d1: 7, w2d2: 8, w2d3: 9, w2d4: 10, w2d5: 11
 };
 const MAX_DAY_CAPACITY = 6.75;
+const MIN_DAY_CAPACITY = 0.25;
+const DEMO_PREP_HOURS = 16.0;
 
 // --- STATE MANAGEMENT ---
 function saveState() {
@@ -86,6 +168,15 @@ function loadState() {
                 const sprint = appState.sprints[sprintId];
                 if (!sprint || typeof sprint.sprintName === 'undefined' || typeof sprint.schedule === 'undefined') {
                     delete appState.sprints[sprintId];
+                }
+                // Retroactively add missing properties
+                if (sprint) {
+                    if (!sprint.defaultDailyLimits) {
+                        sprint.defaultDailyLimits = createNewSprintState('').dailyLimits;
+                    }
+                    if (!sprint.daysOff) {
+                         sprint.daysOff = Object.keys(dayMeta).reduce((acc, dayId) => ({...acc, [dayId]: 'none'}), {});
+                    }
                 }
             });
         }
@@ -135,14 +226,14 @@ function renderTabs() {
         }
     });
     const addTabButton = document.createElement('button');
-    addTabButton.textContent = '+ Add Sprint';
-    addTabButton.className = 'ml-4 my-1 px-3 py-1 text-sm bg-indigo-100 text-indigo-700 rounded-md hover:bg-indigo-200';
+    addTabButton.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1.5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clip-rule="evenodd" /></svg> Add Sprint`;
+    addTabButton.className = 'ml-4 my-1 px-3 py-1.5 text-sm bg-indigo-100 text-indigo-700 rounded-md hover:bg-indigo-200 flex items-center';
     addTabButton.onclick = showNewSprintDialog;
     tabsContainer.appendChild(addTabButton);
 
     const pasteCreateButton = document.createElement('button');
-    pasteCreateButton.textContent = 'Paste & Create';
-    pasteCreateButton.className = 'ml-2 my-1 px-3 py-1 text-sm bg-purple-100 text-purple-700 rounded-md hover:bg-purple-200';
+    pasteCreateButton.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1.5" viewBox="0 0 20 20" fill="currentColor"><path d="M8 3a1 1 0 011-1h2a1 1 0 110 2H9a1 1 0 01-1-1z" /><path d="M6 3a2 2 0 00-2 2v11a2 2 0 002 2h8a2 2 0 002-2V5a2 2 0 00-2-2H6z" /></svg> Paste & Create`;
+    pasteCreateButton.className = 'ml-2 my-1 px-3 py-1.5 text-sm bg-purple-100 text-purple-700 rounded-md hover:bg-purple-200 flex items-center';
     pasteCreateButton.onclick = handlePasteAndCreateClick;
     tabsContainer.appendChild(pasteCreateButton);
 }
@@ -150,14 +241,18 @@ function renderTabs() {
 function renderSprintContent(sprintId) {
     const sprint = appState.sprints[sprintId];
     if (!sprint) return;
+
+    let setDateButton = '';
+    if (!sprint.startDate) {
+        setDateButton = `<button id="set-start-date-btn" class="px-3 py-1.5 text-sm font-medium bg-yellow-500 text-white rounded-md shadow-sm hover:bg-yellow-600 btn-gradient">Set Start Date</button>`;
+    }
+
     const container = document.getElementById('sprint-content');
     container.innerHTML = `
         <div class="flex flex-wrap items-center justify-between gap-4 mb-4">
             <input type="text" value="${sprint.sprintName}" oninput="updateSprintName(this.value)" class="text-2xl font-bold text-gray-800 bg-transparent border-b-2 border-transparent focus:border-indigo-500 outline-none w-auto max-w-full">
             <div class="flex flex-wrap gap-2">
-                <button id="import-current-btn" class="px-3 py-1.5 text-sm font-medium bg-green-100 text-green-700 border border-green-200 rounded-md shadow-sm hover:bg-green-200">Import</button>
-                <button id="share-export-btn" class="px-3 py-1.5 text-sm font-medium bg-blue-100 text-blue-700 border border-blue-200 rounded-md shadow-sm hover:bg-blue-200">Share / Export</button>
-                <button id="delete-sprint-btn" class="px-3 py-1.5 text-sm font-medium bg-red-100 text-red-700 border border-red-200 rounded-md shadow-sm hover:bg-red-200">Delete Sprint</button>
+                ${setDateButton}
             </div>
         </div>
         <div id="sprint-dashboard" class="mb-6"></div>
@@ -173,55 +268,59 @@ function renderDashboard(sprint) {
     const dashboard = document.getElementById('sprint-dashboard');
     const totalHours = Object.values(sprint.dailyLimits).reduce((a, b) => a + b, 0);
     const scheduledHours = Object.values(sprint.schedule).flat().reduce((sum, task) => sum + task.hours, 0);
-    const demoHours = Object.values(sprint.tasks).filter(t => t.type === 'demo').reduce((s,t) => s + t.totalHours, 0);
-    const ticketHours = scheduledHours - demoHours;
-    
+    const ticketHours = scheduledHours - DEMO_PREP_HOURS;
     const { storySummary, bugSummary } = getTaskSummaries(sprint);
 
-    let summaryHtml = '';
+    let storyHtml = '';
     for (const ticketId in storySummary) {
-        summaryHtml += `<div class="border rounded-md p-3 bg-green-50 border-green-200"><strong class="font-medium text-gray-800">${ticketId}</strong><ul class="mt-2 text-sm space-y-1">`;
-        for (const taskName in storySummary[ticketId]) {
-            summaryHtml += `<li class="flex justify-between"><span>${taskName}:</span><span class="font-mono">${storySummary[ticketId][taskName].toFixed(2)}h</span></li>`;
-        }
-        summaryHtml += '</ul></div>';
-    }
-    
-    if (bugSummary.length > 0) {
-        summaryHtml += `
-            <div class="border rounded-md p-3 bg-red-50 border-red-200">
-                <strong class="font-medium text-red-800 mb-2 block">Bugs</strong>
-                <ul class="space-y-1">`;
-        
-        bugSummary.forEach(bug => {
-            summaryHtml += `
-                <li class="flex justify-between items-center text-sm">
-                    <span>${bug.ticketId}</span>
-                    <span class="font-mono">${bug.totalHours.toFixed(2)}h</span>
-                </li>`;
-        });
-        
-        summaryHtml += `
+        const story = storySummary[ticketId];
+        const storyLink = story.link ? `href="${story.link}" target="_blank"` : '';
+        storyHtml += `
+            <div class="border rounded-md p-3 bg-green-50 border-green-200">
+                <div class="flex justify-between items-baseline">
+                    <a ${storyLink} class="font-medium text-gray-800 hover:underline">${ticketId}</a>
+                </div>
+                <p class="text-xs text-gray-600 mt-1 mb-2">${story.title || 'Story'}</p>
+                <ul class="text-xs space-y-1 border-t border-green-200 pt-2">
+                    ${Object.entries(story.subTasks).map(([name, hours]) => `
+                        <li class="flex justify-between"><span>${name}</span><span class="font-mono">${hours.toFixed(2)}h</span></li>
+                    `).join('')}
                 </ul>
             </div>`;
     }
 
+    let bugHtml = '';
+    if (bugSummary.length > 0) {
+        bugHtml = `
+        <div class="border rounded-md p-3 bg-red-50 border-red-200">
+            <strong class="font-medium text-red-800 mb-2 block">Bugs</strong>
+            <ul class="text-xs space-y-1 border-t border-red-200 pt-2">
+                ${bugSummary.map(bug => `
+                    <li class="flex justify-between">
+                        <span>${bug.link ? `<a href="${bug.link}" target="_blank" class="hover:underline">${bug.ticketId}</a>` : bug.ticketId}</span>
+                        <span class="font-mono">${bug.totalHours.toFixed(2)}h</span>
+                    </li>
+                `).join('')}
+            </ul>
+        </div>`;
+    }
+    
     dashboard.innerHTML = `
-        <details class="bg-white rounded-lg shadow p-4" open>
-            <summary class="font-semibold cursor-pointer text-lg">Sprint Dashboard</summary>
-            <div class="mt-4 border-t pt-4">
-                <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-                    <div class="bg-gray-50 p-3 rounded-lg"><p class="text-sm text-gray-500">Total Capacity</p><p class="text-xl font-bold text-gray-800">${totalHours.toFixed(2)} h</p></div>
-                    <div class="bg-gray-50 p-3 rounded-lg"><p class="text-sm text-gray-500">Ticket Time</p><p class="text-xl font-bold text-gray-800">${ticketHours.toFixed(2)} h</p></div>
-                    <div class="bg-gray-50 p-3 rounded-lg"><p class="text-sm text-gray-500">Demo Prep</p><p class="text-xl font-bold text-gray-800">${demoHours.toFixed(2)} h</p></div>
-                    <div class="bg-gray-50 p-3 rounded-lg"><p class="text-sm text-gray-500">Overall Progress</p><p class="text-xl font-bold text-gray-800">${calculateOverallProgress(sprint)}%</p></div>
-                 </div>
-                 <h4 class="font-medium mb-2">Task Summary</h4>
-                 <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 max-h-48 overflow-y-auto pr-2">
-                    ${summaryHtml || '<p class="text-sm text-gray-500">No ticketed tasks found.</p>'}
-                 </div>
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+        <div class="bg-white p-4 rounded-lg shadow"><p class="text-sm text-gray-500">Total Capacity</p><p class="text-2xl font-bold text-gray-800">${totalHours.toFixed(2)} h</p></div>
+        <div class="bg-white p-4 rounded-lg shadow"><p class="text-sm text-gray-500">Ticket Time</p><p class="text-2xl font-bold text-gray-800">${ticketHours.toFixed(2)} h</p></div>
+        <div class="bg-white p-4 rounded-lg shadow"><p class="text-sm text-gray-500">Demo Prep</p><p class="text-2xl font-bold text-gray-800">${DEMO_PREP_HOURS.toFixed(2)} h</p></div>
+        <div class="bg-white p-4 rounded-lg shadow"><p class="text-sm text-gray-500">Overall Progress</p><p class="text-2xl font-bold text-gray-800">${calculateOverallProgress(sprint)}%</p></div>
+    </div>
+    <details class="bg-white rounded-lg shadow p-4" open>
+        <summary class="font-semibold cursor-pointer text-lg">Estimate Summary</summary>
+        <div class="mt-4 border-t pt-4">
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 max-h-64 overflow-y-auto pr-2">
+                ${storyHtml}
+                ${bugHtml || ''}
             </div>
-        </details>
+        </div>
+    </details>
     `;
 }
 
@@ -238,14 +337,49 @@ function generateWeekHtml(days, sprint) {
     const headHtml = days.map(dayId => {
         const scheduledHours = (sprint.schedule[dayId] || []).reduce((sum, t) => sum + t.hours, 0);
         const capacity = sprint.dailyLimits[dayId];
-        const overUnderClass = scheduledHours > capacity ? 'text-red-600' : 'text-gray-800';
-        return `<th class="p-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
-            ${dayMeta[dayId].name} 
-            (<span class="${overUnderClass}">${scheduledHours.toFixed(2)}h</span> / <span class="capacity-edit" data-day-id="${dayId}" title="Click to edit capacity">${capacity.toFixed(2)}h</span>)
+        const defaultCapacity = sprint.defaultDailyLimits[dayId];
+        const dayOffStatus = sprint.daysOff[dayId];
+        const overUnderClass = scheduledHours > capacity ? 'text-red-600 font-bold' : 'text-gray-800';
+        const isAdjusted = Math.abs(capacity - defaultCapacity) > 0.01 && dayOffStatus === 'none';
+        
+        let dayOffLabel = '';
+        if (dayOffStatus === 'full') dayOffLabel = `<span class="day-off-label block">FULL DAY OFF</span>`;
+        if (dayOffStatus === 'half') dayOffLabel = `<span class="day-off-label block">HALF DAY OFF</span>`;
+
+        let dateDisplay = '';
+        if (sprint.startDate) {
+            const date = getDateForDayId(sprint.startDate, dayId);
+            if (date) {
+                 const dayStr = date.toLocaleDateString('en-GB', { weekday: 'short' });
+                 const dateStr = date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+                 
+                 let suffix = '';
+                 if (dayId === 'w1d1') suffix = ': Start';
+                 if (dayId === 'w2d5') suffix = ': End';
+
+                dateDisplay = `<span class="block font-normal normal-case text-gray-500 text-xs">${dayStr} ${dateStr}${suffix}</span>`;
+            }
+        }
+
+        return `<th class="p-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider ${dayOffStatus !== 'none' ? 'day-off-full' : ''}">
+            <div class="font-semibold text-gray-700 normal-case">${dayMeta[dayId].name}</div>
+            ${dateDisplay}
+            ${dayOffLabel}
+             <div class="mt-1 text-xs font-normal normal-case">
+                <div class="capacity-display border inline-flex items-baseline gap-1.5 px-2 py-1 rounded-md bg-gray-50 border-gray-200 ${isAdjusted ? 'adjusted' : ''}">
+                    <span class="${overUnderClass}">${scheduledHours.toFixed(2)}h</span>
+                    <span class="text-gray-300">/</span>
+                    <span class="capacity-edit" data-day-id="${dayId}">${capacity.toFixed(2)}h</span>
+                    <button class="ml-1 capacity-edit" data-day-id="${dayId}" title="Adjust Capacity & Days Off">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-gray-400 hover:text-indigo-600" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.414-1.415L11 9.586V6z" clip-rule="evenodd" /></svg>
+                    </button>
+                </div>
+            </div>
         </th>`;
     }).join('');
     
     let bodyHtml = '<tr>' + days.map(dayId => {
+        const dayOffStatus = sprint.daysOff[dayId];
         const tasksOnDay = sprint.schedule[dayId] || [];
         const unloggedTotal = tasksOnDay.reduce((sum, t) => {
             const logged = (t.subTasks || []).reduce((acc, sub) => acc + (sub.loggedHours || 0), 0);
@@ -288,7 +422,7 @@ function generateWeekHtml(days, sprint) {
                     <div class="progress-bar-container"><div class="progress-bar-bg"><div class="progress-bar-fg" style="width: ${progress}%;"></div><div class="progress-bar-text">${doneLabel}</div></div></div>
                 </div>`;
         }).join('');
-        return `<td class="p-2 align-top day-column" data-day-id="${dayId}">
+        return `<td class="p-2 align-top day-column ${dayOffStatus !== 'none' ? 'day-off-full' : ''}" data-day-id="${dayId}">
             <div class="text-xs font-semibold text-center mb-2 p-1 rounded-full ${remainingClass} bg-opacity-20 ${unloggedTotal < 0 ? 'bg-red-200' : 'bg-gray-200'}">Unlogged: ${unloggedTotal.toFixed(2)}h</div>
             ${taskCards}
         </td>`;
@@ -314,22 +448,24 @@ function updateSprintName(newName) {
 
 function addSprintContentEventListeners() {
     const container = document.getElementById('sprint-content');
-    container.addEventListener('click', handleCardClick);
+    container.addEventListener('click', (e) => {
+        const cardButton = e.target.closest('[data-action]');
+        if (cardButton) {
+            handleCardClick(e);
+            return;
+        }
+
+        const capacityEditor = e.target.closest('.capacity-edit');
+        if (capacityEditor) {
+            handleEditDayCapacity(capacityEditor.dataset.dayId);
+            return;
+        }
+    });
+
     container.addEventListener('dragstart', handleDragStart);
     container.addEventListener('dragover', handleDragOver);
     container.addEventListener('dragleave', handleDragLeave);
     container.addEventListener('drop', handleDrop);
-
-    document.getElementById('import-current-btn').onclick = () => handleImportClick(true);
-    document.getElementById('share-export-btn').onclick = handleShareExportClick;
-    document.getElementById('delete-sprint-btn').onclick = handleDeleteSprint;
-    
-    container.addEventListener('click', (e) => {
-        const capacityEditor = e.target.closest('.capacity-edit');
-        if (capacityEditor) {
-            handleEditDayCapacity(capacityEditor.dataset.dayId);
-        }
-    });
 }
 
 function handleCardClick(e) {
@@ -410,20 +546,18 @@ function showDropSwapModal(sourceScheduledId, targetDayId) {
     }
 
     const modalContent = showModal(`
-        <h3 class="text-lg font-semibold text-gray-800 mb-2">Swap Task</h3>
+        <h3 class="text-lg font-semibold text-gray-800 mb-2">Move or Swap Task</h3>
         <div id="swap-options" class="space-y-2 max-h-64 overflow-y-auto pr-2">${optionsHtml}</div>
         <div class="flex justify-end gap-3 mt-6">
             <button onclick="hideModal()" class="px-4 py-2 bg-gray-200 rounded-md">Cancel</button>
-            ${targetTasksOnDay.length === 0 ? `<button id="move-task-btn" class="px-4 py-2 bg-indigo-600 text-white rounded-md">Move Here</button>` : ''}
+            <button id="move-task-btn" class="px-4 py-2 bg-indigo-600 text-white rounded-md">Move & Split</button>
         </div>
     `);
 
-    if(targetTasksOnDay.length === 0) {
-        modalContent.querySelector('#move-task-btn').onclick = () => {
-             moveTaskToDay(sourceScheduledId, targetDayId);
-             hideModal();
-        };
-    }
+    modalContent.querySelector('#move-task-btn').onclick = () => {
+         moveTaskToDay(sourceScheduledId, targetDayId);
+         hideModal();
+    };
 
     modalContent.querySelector('#swap-options').addEventListener('click', (e) => {
         const targetButton = e.target.closest('button[data-target-id]');
@@ -440,19 +574,43 @@ function moveTaskToDay(scheduledId, targetDayId) {
     const sprint = appState.sprints[appState.activeSprintId];
     const sourceInfo = findScheduledTaskById(scheduledId);
     if (!sourceInfo || !sprint) return;
-    
+
     const { dayId: sourceDayId, scheduledTask } = sourceInfo;
-    
     if (sourceDayId === targetDayId) return;
+
+    const targetDayCapacity = sprint.dailyLimits[targetDayId];
+    const targetDayScheduledHours = (sprint.schedule[targetDayId] || []).reduce((sum, t) => sum + t.hours, 0);
+    const availableCapacity = targetDayCapacity - targetDayScheduledHours;
+
+    if (availableCapacity <= 0) {
+        showMessageModal(`${dayMeta[targetDayId].name} is already at full capacity.`, "Move Failed");
+        return;
+    }
+
+    const hoursToMove = Math.min(scheduledTask.hours, availableCapacity);
     
-    sprint.schedule[sourceDayId] = sprint.schedule[sourceDayId].filter(t => t.id !== scheduledId);
     if (!sprint.schedule[targetDayId]) {
         sprint.schedule[targetDayId] = [];
     }
-    sprint.schedule[targetDayId].push(scheduledTask);
+    
+    const existingTaskOnTarget = sprint.schedule[targetDayId].find(t => t.taskId === scheduledTask.taskId);
+
+    if (existingTaskOnTarget) {
+        existingTaskOnTarget.hours += hoursToMove;
+    } else {
+        const newTask = { ...scheduledTask, id: `s_${targetDayId}_${scheduledTask.taskId}_${Math.random()}`, hours: hoursToMove };
+        sprint.schedule[targetDayId].push(newTask);
+    }
+
+    // Update source task
+    scheduledTask.hours -= hoursToMove;
+    if (scheduledTask.hours < 0.01) {
+        sprint.schedule[sourceDayId] = sprint.schedule[sourceDayId].filter(t => t.id !== scheduledId);
+    }
     
     renderApp();
 }
+
 
 function swapTasks(sourceId, targetId) {
     const sprint = appState.sprints[appState.activeSprintId];
@@ -605,79 +763,232 @@ function handleChecklistClick(scheduledId) {
     });
 }
 
-function handleEditDayCapacity(dayIdToIncrease) {
+function handleEditDayCapacity() {
     const sprint = appState.sprints[appState.activeSprintId];
     
-    const daysWithSpareCapacity = Object.keys(dayMeta)
-        .filter(d => d !== dayIdToIncrease && sprint.dailyLimits[d] < MAX_DAY_CAPACITY);
+    let allDaysHtml = Object.keys(dayMeta).map(dayId => {
+        const date = getDateForDayId(sprint.startDate, dayId);
+        const dayOffStatus = sprint.daysOff[dayId];
+        const defaultCapacity = sprint.defaultDailyLimits[dayId];
+        const currentCapacity = sprint.dailyLimits[dayId];
+        const canFill = dayOffStatus === 'none' && currentCapacity < MAX_DAY_CAPACITY;
 
-    const otherDaysHtml = daysWithSpareCapacity.length > 0 ?
-        daysWithSpareCapacity.map(dayId => `
-            <div class="flex justify-between items-center">
-                <label>${dayMeta[dayId].name}</label>
-                <input type="number" class="form-input w-24 capacity-change-input" value="${sprint.dailyLimits[dayId]}" data-day-id="${dayId}" max="${MAX_DAY_CAPACITY}" step="0.25">
-            </div>`).join('') :
-        `<p class="text-center text-sm text-gray-500 col-span-2">No other days have spare capacity to balance from.</p>`;
+        let dateDisplay = dayMeta[dayId].name;
+         if (date) {
+            const dayStr = date.toLocaleDateString('en-GB', { weekday: 'short' });
+            const dateStr = date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+            dateDisplay = `${dayStr} ${dateStr}`;
+        }
+        
+        return `
+            <div class="grid grid-cols-5 gap-4 items-center p-2 rounded-md day-adjust-row" data-day-id="${dayId}">
+                <label class="text-sm font-medium text-gray-700 col-span-1">${dateDisplay}</label>
+                <span class="text-center font-mono text-sm text-gray-500">${defaultCapacity.toFixed(2)}h</span>
+                <div class="flex items-center gap-1">
+                     <input type="number" class="form-input w-full capacity-change-input" value="${currentCapacity}" 
+                        min="${MIN_DAY_CAPACITY}" max="${MAX_DAY_CAPACITY}" step="0.25" ${dayOffStatus !== 'none' ? 'disabled' : ''}>
+                    <button class="p-1 rounded-full fill-remainder-btn ${canFill ? 'text-green-500' : 'text-gray-300'}" title="Fill with remainder" ${!canFill ? 'disabled' : ''}>
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.414-1.415L11 9.586V6z" clip-rule="evenodd" /></svg>
+                    </button>
+                </div>
+                <div class="col-span-2 flex items-center justify-center">
+                    <div class="day-off-toggle" data-state="${dayOffStatus}">
+                         <div class="day-off-toggle-label">
+                            ${dayOffStatus === 'full' ? 'OFF' : (dayOffStatus === 'half' ? 'HALF' : '')}
+                        </div>
+                        <div class="day-off-toggle-thumb"></div>
+                        <div class="day-off-toggle-section" data-value="full" title="Full Day Off"></div>
+                        <div class="day-off-toggle-section" data-value="none" title="Work Day"></div>
+                        <div class="day-off-toggle-section" data-value="half" title="Half Day Off"></div>
+                    </div>
+                </div>
+            </div>`;
+    }).join('');
 
     const modalContent = showModal(`
-        <h3 class="text-lg font-semibold mb-4">Adjust Capacity for ${dayMeta[dayIdToIncrease].name}</h3>
-        <p class="text-sm text-gray-600 my-2">Increase or decrease this day's capacity. You must balance the change by adjusting other available days.</p>
-        <div>
-            <label class="font-medium">${dayMeta[dayIdToIncrease].name}</label>
-            <input id="capacity-input-${dayIdToIncrease}" class="form-input capacity-change-input" type="number" step="0.25" value="${sprint.dailyLimits[dayIdToIncrease]}" data-day-id="${dayIdToIncrease}">
+        <h3 class="text-lg font-semibold mb-4">Adjust Capacity & Days Off</h3>
+        <p class="text-sm text-gray-600 my-2">Adjust daily hours or mark days off. Total capacity across available days must remain balanced.</p>
+        
+        <div class="grid grid-cols-5 gap-4 items-center font-bold text-xs uppercase text-gray-500 mb-2 border-b pb-2">
+            <span>Day</span>
+            <span class="text-center">Default</span>
+            <span class="text-center">Adjusted</span>
+            <span class="text-center col-span-2">Day Off Status</span>
         </div>
-        <hr class="my-4">
-        <h4 class="font-medium text-sm mb-2">Balance from other days:</h4>
-        <div id="other-days-list" class="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-2">
-            ${otherDaysHtml}
+
+        <div id="all-days-list" class="space-y-1">
+            ${allDaysHtml}
         </div>
-        <div id="balance-notification" class="mt-4 p-2 text-center font-bold rounded-md"></div>
+
+        <div id="balance-notification" class="mt-4 p-2 text-center font-bold rounded-md flex justify-center items-center gap-4"></div>
         <div class="flex justify-end mt-6 gap-3">
             <button onclick="hideModal()" class="px-4 py-2 bg-gray-200 rounded-md">Cancel</button>
-            <button id="save-capacity-btn" class="px-4 py-2 bg-indigo-600 text-white rounded-md disabled:opacity-50" disabled>Save & Recalculate</button>
+            <button id="save-capacity-btn" class="px-4 py-2 bg-indigo-600 text-white rounded-md disabled:opacity-50">Save & Recalculate</button>
         </div>`);
     
-    const inputs = Array.from(modalContent.querySelectorAll('.capacity-change-input'));
     const notification = modalContent.querySelector('#balance-notification');
     const saveBtn = modalContent.querySelector('#save-capacity-btn');
-    const originalTotal = Object.values(sprint.dailyLimits).reduce((a, b) => a + b, 0);
-
+    const dayRows = modalContent.querySelectorAll('.day-adjust-row');
+    
     const checkBalance = () => {
-        const fullListOfDays = Object.keys(dayMeta);
         let newTotal = 0;
+        let originalTotal = 0;
         
-        fullListOfDays.forEach(dayId => {
-            const input = modalContent.querySelector(`[data-day-id="${dayId}"]`);
-            if (input) {
-                newTotal += parseFloat(input.value) || 0;
-            } else {
-                newTotal += sprint.dailyLimits[dayId];
+        dayRows.forEach(row => {
+            const dayId = row.dataset.dayId;
+            const input = row.querySelector('.capacity-change-input');
+            const dayOffStatus = row.querySelector('.day-off-toggle').dataset.state;
+             
+            if (dayOffStatus === 'none') {
+                 originalTotal += sprint.defaultDailyLimits[dayId];
+            } else if (dayOffStatus === 'half') {
+                 originalTotal += sprint.defaultDailyLimits[dayId] / 2;
             }
+            newTotal += parseFloat(input.value) || 0;
         });
 
         const diff = newTotal - originalTotal;
         
         if (Math.abs(diff) < 0.01) {
-            notification.className = 'mt-4 p-2 text-center font-bold rounded-md bg-green-100 text-green-700';
-            notification.textContent = 'Balanced';
+            notification.className = 'mt-4 p-2 text-center font-bold rounded-md bg-green-100 text-green-700 flex justify-center items-center gap-4';
+            notification.innerHTML = '<span>Balanced</span>';
             saveBtn.disabled = false;
         } else {
-            notification.className = 'mt-4 p-2 text-center font-bold rounded-md bg-yellow-100 text-yellow-700';
-            notification.textContent = `Out of balance by ${diff.toFixed(2)}h`;
+            notification.className = 'mt-4 p-2 text-center font-bold rounded-md bg-yellow-100 text-yellow-700 flex justify-center items-center gap-4';
+            notification.innerHTML = `<span>Out of balance by ${diff.toFixed(2)}h</span> <button id="distribute-btn" class="px-2 py-1 text-xs bg-yellow-400 text-yellow-900 rounded-md hover:bg-yellow-500">Distribute Remainder</button>`;
             saveBtn.disabled = true;
+            modalContent.querySelector('#distribute-btn').onclick = () => distributeRemainder(diff);
         }
     };
 
-    inputs.forEach(input => input.addEventListener('input', checkBalance));
+    const distributeRemainder = (diff) => {
+        let amountToDistribute = -diff;
+        
+        let passes = 0;
+        while (Math.abs(amountToDistribute) > 0.01 && passes < 10) {
+            const adjustableDays = [];
+            dayRows.forEach(row => {
+                const dayOffStatus = row.querySelector('.day-off-toggle').dataset.state;
+                const input = row.querySelector('.capacity-change-input');
+                const currentValue = parseFloat(input.value);
+                if (dayOffStatus === 'none' && currentValue < MAX_DAY_CAPACITY) {
+                    adjustableDays.push(input);
+                }
+            });
+
+            if (adjustableDays.length === 0) break;
+
+            const amountPerDay = amountToDistribute / adjustableDays.length;
+
+            adjustableDays.forEach(input => {
+                const currentValue = parseFloat(input.value);
+                const spaceAvailable = MAX_DAY_CAPACITY - currentValue;
+                const amountToAdd = Math.min(spaceAvailable, amountPerDay);
+                
+                if (amountToAdd > 0.01) {
+                     const newValue = currentValue + amountToAdd;
+                     input.value = newValue.toFixed(2);
+                     amountToDistribute -= amountToAdd;
+                }
+            });
+            passes++;
+        }
+        
+        let finalTotal = 0;
+        let originalTotal = 0;
+        dayRows.forEach(row => {
+             const dayId = row.dataset.dayId;
+             const input = row.querySelector('.capacity-change-input');
+             const dayOffStatus = row.querySelector('.day-off-toggle').dataset.state;
+             if (dayOffStatus === 'none') originalTotal += sprint.defaultDailyLimits[dayId];
+             else if (dayOffStatus === 'half') originalTotal += sprint.defaultDailyLimits[dayId] / 2;
+             finalTotal += parseFloat(input.value) || 0;
+        });
+        const finalDiff = finalTotal - originalTotal;
+        
+        if (Math.abs(finalDiff) > 0.01) {
+             const firstAdjustable = Array.from(dayRows).find(row => !row.querySelector('.capacity-change-input').disabled);
+             if (firstAdjustable) {
+                const input = firstAdjustable.querySelector('.capacity-change-input');
+                input.value = (parseFloat(input.value) - finalDiff).toFixed(2);
+             }
+        }
+        
+        checkBalance();
+    };
+    
+    const fillRemainder = (targetInput) => {
+        let currentTotal = 0;
+        let originalTotal = 0;
+         dayRows.forEach(row => {
+            const dayId = row.dataset.dayId;
+            const input = row.querySelector('.capacity-change-input');
+            const dayOffStatus = row.querySelector('.day-off-toggle').dataset.state;
+            if (dayOffStatus === 'none') {
+                 originalTotal += sprint.defaultDailyLimits[dayId];
+            } else if (dayOffStatus === 'half') {
+                 originalTotal += sprint.defaultDailyLimits[dayId] / 2;
+            }
+            if (input !== targetInput) {
+                currentTotal += parseFloat(input.value) || 0;
+            }
+        });
+        const diff = originalTotal - currentTotal;
+        const newValue = Math.min(MAX_DAY_CAPACITY, diff);
+        targetInput.value = Math.max(MIN_DAY_CAPACITY, newValue).toFixed(2);
+        checkBalance();
+    }
+
+    dayRows.forEach(row => {
+        const dayId = row.dataset.dayId;
+        const capacityInput = row.querySelector('.capacity-change-input');
+        const toggle = row.querySelector('.day-off-toggle');
+        const toggleLabel = toggle.querySelector('.day-off-toggle-label');
+        
+        toggle.addEventListener('click', (e) => {
+            const clickedValue = e.target.dataset.value;
+            if (!clickedValue) return;
+
+            toggle.dataset.state = clickedValue;
+            
+            const defaultCapacity = sprint.defaultDailyLimits[dayId];
+            
+            if (clickedValue === 'full') {
+                capacityInput.value = '0.00';
+                capacityInput.disabled = true;
+                toggleLabel.textContent = 'OFF';
+            } else if (clickedValue === 'half') {
+                capacityInput.value = (defaultCapacity / 2).toFixed(2);
+                capacityInput.disabled = true;
+                toggleLabel.textContent = 'HALF';
+            } else { // 'none'
+                capacityInput.value = defaultCapacity.toFixed(2);
+                capacityInput.disabled = false;
+                toggleLabel.textContent = '';
+            }
+            row.querySelector('.fill-remainder-btn').disabled = (clickedValue === 'full');
+            checkBalance();
+        });
+
+        capacityInput.addEventListener('input', checkBalance);
+        row.querySelector('.fill-remainder-btn').addEventListener('click', () => fillRemainder(capacityInput));
+    });
+
     checkBalance();
 
     saveBtn.onclick = () => {
         const newLimits = { ...sprint.dailyLimits };
-        inputs.forEach(input => {
-            newLimits[input.dataset.dayId] = parseFloat(input.value) || 0;
+        const newDaysOff = { ...sprint.daysOff };
+
+        dayRows.forEach(row => {
+            const dayId = row.dataset.dayId;
+            newLimits[dayId] = parseFloat(row.querySelector('.capacity-change-input').value) || 0;
+            newDaysOff[dayId] = row.querySelector('.day-off-toggle').dataset.state;
         });
+
         sprint.dailyLimits = newLimits;
-        sprint.schedule = distributeTasksLogically(sprint.tasks, sprint.dailyLimits);
+        sprint.daysOff = newDaysOff;
+        sprint.schedule = distributeTasksLogically(sprint.tasks, sprint.dailyLimits, sprint.allocationConfig.scheduling); // Assume config is saved
         hideModal();
         renderApp();
     };
@@ -694,123 +1005,242 @@ function showNewSprintDialog() {
         </div>
         <div class="flex justify-end mt-6"><button onclick="hideModal()" class="px-4 py-2 bg-gray-200 rounded-md">Cancel</button></div>`);
     document.getElementById('import-sprint-btn').onclick = () => handleImportClick(false);
-    document.getElementById('create-sprint-btn').onclick = handleCreateNewBoardClick;
+    document.getElementById('create-sprint-btn').onclick = () => handleCreateNewBoardClick();
 }
 
-function handleCreateNewBoardClick() {
-    const modalContent = showModal(`
-        <h3 class="text-lg font-semibold">Create New Board</h3>
-        <p class="text-sm text-gray-600 my-2">Enter ticket details. Click "+ Add Row" for more.</p>
-        <div class="overflow-x-auto"><table class="w-full text-sm"><thead class="bg-gray-50"><tr class="text-left"><th class="p-2 w-1/5">ID</th><th class="p-2 w-2/5">Title</th><th class="p-2 w-1/5">Type</th><th class="p-2 w-1/5">Points</th></tr></thead><tbody id="new-sprint-table-body"></tbody></table></div>
-        <button id="add-row-btn" class="mt-4 px-3 py-1.5 text-sm font-medium bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200">+ Add Row</button>
-        <div class="flex justify-end mt-6 gap-3"><button onclick="showNewSprintDialog()" class="px-4 py-2 bg-gray-200 rounded-md">Back</button><button id="confirm-create-board" class="px-4 py-2 bg-indigo-600 text-white rounded-md">Next</button></div>`);
-    const tableBody = modalContent.querySelector('#new-sprint-table-body');
-    const addRow = () => {
-        const row = document.createElement('tr');
-        row.innerHTML = `
-            <td class="p-1"><input type="text" class="form-input ticket-id" placeholder="NCOP-1234"></td>
-            <td class="p-1"><input type="text" class="form-input ticket-title" placeholder="Task description..."></td>
-            <td class="p-1"><select class="form-input ticket-type"><option value="S" selected>Story</option><option value="B">Bug</option></select></td>
-            <td class="p-1"><input type="number" class="form-input ticket-points" value="1" min="1"></td>`;
-        tableBody.appendChild(row);
-    };
-    modalContent.querySelector('#add-row-btn').onclick = addRow;
-    addRow();
-    modalContent.querySelector('#confirm-create-board').onclick = () => {
-        const parsedTasks = Array.from(tableBody.querySelectorAll('tr')).map(row => ({
-            ticketId: row.querySelector('.ticket-id').value, title: row.querySelector('.ticket-title').value,
-            type: row.querySelector('.ticket-type').value, points: parseInt(row.querySelector('.ticket-points').value, 10)
-        })).filter(t => t.ticketId && t.title && t.points > 0);
-        if (parsedTasks.length === 0) return showMessageModal("Please add at least one valid ticket.");
-        showAllocationDialog(parsedTasks);
-    };
-}
-
-function handlePasteAndCreateClick() {
-    const modalContent = showModal(`
-        <h3 class="text-lg font-semibold">✨ Paste & Create Sprint</h3>
-        <p class="text-sm text-gray-600 my-2">Paste ticket list from a spreadsheet (tab-separated: ID, Title, Type, Points).</p>
-        <textarea id="ticket-text-ai" class="w-full h-64 p-2 border rounded-md font-mono text-xs" placeholder="Pasting from clipboard..."></textarea>
-        <div class="flex justify-end mt-6 gap-3">
-             <button onclick="hideModal()" class="px-4 py-2 bg-gray-200 rounded-md">Cancel</button>
-             <button id="confirm-paste-create" class="px-4 py-2 bg-indigo-600 text-white rounded-md">Create From Text</button>
-        </div>`);
-    
-    const textArea = modalContent.querySelector('#ticket-text-ai');
-    navigator.clipboard?.readText?.().then(text => {
-        textArea.value = text;
-        textArea.placeholder = "ID\tTitle\tType\tPoints\nNCOP-10096\tSome Title...\tS\t5";
-    }).catch(err => {
-        console.warn("Could not auto-paste from clipboard.", err);
-        textArea.placeholder = "Could not auto-paste. Please paste your ticket list here.";
-    });
-
-    modalContent.querySelector('#confirm-paste-create').onclick = () => {
-        const ticketText = textArea.value;
-        if (!ticketText.trim()) return showMessageModal("Please paste some ticket information.");
+function handleCreateNewBoardClick(initialTasks = []) {
+    showCalendarModal('Select Sprint Start Date', (startDate) => {
+        const modalContent = document.querySelector('#generic-modal .modal-content');
+        if (!modalContent) return;
         
-        try {
-            const parsedTasks = parsePastedText(ticketText);
-            if(parsedTasks.length === 0) throw new Error("Could not parse any valid tasks from the text.");
-            showAllocationDialog(parsedTasks);
-        } catch (e) {
-            showMessageModal(`Failed to create board: ${e.message}`);
+        modalContent.innerHTML = `
+            <h3 class="text-lg font-semibold">Create New Board</h3>
+            <p class="text-sm text-gray-600 my-2">Enter ticket details. Click "+ Add Row" for more.</p>
+            <div class="overflow-x-auto"><table class="w-full text-sm"><thead class="bg-gray-50"><tr class="text-left"><th class="p-2 w-1/5">ID</th><th class="p-2 w-2/5">Title</th><th class="p-2 w-1/5">Type</th><th class="p-2 w-1/5">Points</th></tr></thead><tbody id="new-sprint-table-body"></tbody></table></div>
+            <button id="add-row-btn" class="mt-4 px-3 py-1.5 text-sm font-medium bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200">+ Add Row</button>
+            <div class="flex justify-end mt-6 gap-3"><button onclick="showNewSprintDialog()" class="px-4 py-2 bg-gray-200 rounded-md">Back</button><button id="confirm-create-board" class="px-4 py-2 bg-indigo-600 text-white rounded-md">Next</button></div>`;
+        
+        const tableBody = modalContent.querySelector('#new-sprint-table-body');
+        const addRow = (task = { ticketId: '', title: '', type: 'S', points: 1 }) => {
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td class="p-1"><input type="text" class="form-input ticket-id" placeholder="NCOP-1234" value="${task.ticketId}"></td>
+                <td class="p-1"><input type="text" class="form-input ticket-title" placeholder="Task description..." value="${task.title}"></td>
+                <td class="p-1"><select class="form-input ticket-type"><option value="S" ${task.type === 'S' ? 'selected' : ''}>Story</option><option value="B" ${task.type === 'B' ? 'selected' : ''}>Bug</option></select></td>
+                <td class="p-1"><input type="number" class="form-input ticket-points" value="${task.points}" min="1"></td>`;
+            tableBody.appendChild(row);
+        };
+
+        if (initialTasks.length > 0) {
+            initialTasks.forEach(addRow);
+        } else {
+            addRow();
         }
-    };
+
+        modalContent.querySelector('#add-row-btn').onclick = () => addRow();
+        modalContent.querySelector('#confirm-create-board').onclick = () => {
+            const parsedTasks = Array.from(tableBody.querySelectorAll('tr')).map(row => ({
+                ticketId: row.querySelector('.ticket-id').value, title: row.querySelector('.ticket-title').value,
+                type: row.querySelector('.ticket-type').value, points: parseInt(row.querySelector('.ticket-points').value, 10)
+            })).filter(t => t.ticketId && t.title && t.points > 0);
+            if (parsedTasks.length === 0) return showMessageModal("Please add at least one valid ticket.");
+            
+            showAllocationDialog(parsedTasks, startDate);
+        };
+    }, showNewSprintDialog); // onCancel, go back to the first dialog
 }
 
-function showAllocationDialog(parsedTasks) {
-    const totalPoints = parsedTasks.reduce((sum, task) => sum + task.points, 0);
-    const totalWorkHours = 53 - 8;
-    const defaultHoursPerPoint = totalPoints > 0 ? totalWorkHours / totalPoints : 0;
 
+function handlePasteAndCreateClick(initialText = null) {
+     showCalendarModal('Select Sprint Start Date', (startDate) => {
+        const modalContent = document.querySelector('#generic-modal .modal-content');
+        if (!modalContent) return;
+        
+        modalContent.innerHTML = `
+            <h3 class="text-lg font-semibold">✨ Paste & Create Sprint</h3>
+            <p class="text-sm text-gray-600 my-2">Paste ticket list from a spreadsheet (Format: ID	Title	Points	Type).</p>
+            <textarea id="ticket-text-ai" class="w-full h-64 p-2 border rounded-md font-mono text-xs" placeholder="Pasting from clipboard..."></textarea>
+            <div class="flex justify-end mt-6 gap-3">
+                <button onclick="handlePasteAndCreateClick(null)" class="px-4 py-2 bg-gray-200 rounded-md">Back</button>
+                <button id="confirm-paste-create" class="px-4 py-2 bg-indigo-600 text-white rounded-md">Create From Text</button>
+            </div>`;
+        
+        const textArea = modalContent.querySelector('#ticket-text-ai');
+        if (initialText !== null) {
+            textArea.value = initialText;
+        } else {
+             navigator.clipboard?.readText?.().then(text => {
+                textArea.value = text;
+            }).catch(err => {
+                console.warn("Could not auto-paste from clipboard.", err);
+                textArea.placeholder = "Could not auto-paste. Please paste your ticket list here.";
+            });
+        }
+
+        modalContent.querySelector('#confirm-paste-create').onclick = () => {
+            const ticketText = textArea.value;
+            if (!ticketText.trim()) return showMessageModal("Please paste some ticket information.");
+            
+            try {
+                const parsedTasks = parsePastedText(ticketText);
+                if(parsedTasks.length === 0) throw new Error("Could not parse any valid tasks from the text. Check the format: ID	Title	Points	Type, separated by tabs.");
+                showAllocationDialog(parsedTasks, startDate);
+            } catch (e) {
+                showMessageModal(`Failed to create board: ${e.message}`);
+            }
+        };
+     }, showNewSprintDialog);
+}
+
+
+function showAllocationDialog(parsedTasks, startDate) {
+    const modalContent = document.querySelector('#generic-modal .modal-content');
+    if (!modalContent) return;
+
+    const totalPoints = parsedTasks.reduce((sum, task) => sum + task.points, 0);
+    const totalWorkHours = 53 - DEMO_PREP_HOURS;
+    const defaultHoursPerPoint = totalPoints > 0 ? totalWorkHours / totalPoints : 0;
+    
     const hasStories = parsedTasks.some(t => t.type === 'S');
     const hasBugs = parsedTasks.some(t => t.type === 'B');
 
+    let storySubTasks = [
+        { name: 'Create TCs', type: 'create', percentage: 50 },
+        { name: 'Execute TCs', type: 'execute', percentage: 40 },
+        { name: 'C/V Bugs', type: 'verify', percentage: 10 }
+    ];
+
+    const renderStoryAllocations = () => {
+        const container = modalContent.querySelector('#story-allocations-container');
+        const totalEl = modalContent.querySelector('#story-alloc-total');
+        if (!container || !totalEl) return;
+
+        container.innerHTML = storySubTasks.map((task, index) => `
+            <div class="grid grid-cols-12 gap-2 items-center mb-2">
+                <input type="text" value="${task.name}" data-index="${index}" data-field="name" class="form-input col-span-5 story-alloc-input" placeholder="Sub-task Name">
+                <select data-index="${index}" data-field="type" class="form-input col-span-4 story-alloc-input">
+                    <option value="create" ${task.type === 'create' ? 'selected' : ''}>Create/Dev</option>
+                    <option value="execute" ${task.type === 'execute' ? 'selected' : ''}>Execute/Test</option>
+                    <option value="verify" ${task.type === 'verify' ? 'selected' : ''}>Verify/Bugs</option>
+                </select>
+                <input type="number" value="${task.percentage}" data-index="${index}" data-field="percentage" class="form-input col-span-2 story-alloc-input" placeholder="%">
+                <button data-index="${index}" class="remove-story-alloc-btn col-span-1 text-red-500 hover:text-red-700 font-bold text-lg flex justify-center items-center">&times;</button>
+            </div>
+        `).join('');
+
+        const totalPercentage = storySubTasks.reduce((sum, task) => sum + (parseInt(task.percentage, 10) || 0), 0);
+        totalEl.textContent = `Total: ${totalPercentage}%`;
+        totalEl.className = `text-right font-bold mt-2 ${totalPercentage === 100 ? 'text-green-600' : 'text-red-600'}`;
+    };
+    
     let storyAllocationHtml = '';
     if (hasStories) {
         storyAllocationHtml = `
             <h4 class="text-md font-semibold mb-2">Story Sub-Task Allocation</h4>
-            <div class="space-y-3 p-3 border rounded-md">
-                <p class="text-xs text-gray-500">Define the percentage of time for each part of a story. Total must be 100%.</p>
-                <div><label class="block text-sm font-medium">Create TCs (%)</label><input id="alloc-create" type="number" value="50" class="form-input"></div>
-                <div><label class="block text-sm font-medium">Execute TCs (%)</label><input id="alloc-execute" type="number" value="40" class="form-input"></div>
-                <div><label class="block text-sm font-medium">Create/Verify Bugs (%)</label><input id="alloc-bugs" type="number" value="10" class="form-input"></div>
-            </div>
-        `;
+            <div class="space-y-1 p-3 border rounded-md">
+                <p class="text-xs text-gray-500 mb-3">Define the sub-tasks for stories. Total percentage must be 100%.</p>
+                <div id="story-allocations-container"></div>
+                <button id="add-story-alloc-btn" class="text-xs px-2 py-1 bg-gray-100 rounded hover:bg-gray-200 mt-2">+ Add Sub-task</button>
+                <div id="story-alloc-total"></div>
+            </div>`;
     }
 
     let bugAllocationHtml = '';
     if (hasBugs) {
         bugAllocationHtml = `
             <h4 class="text-md font-semibold mb-2 mt-4">Bug Allocation</h4>
-             <div class="space-y-3 p-3 border rounded-md">
-                <p class="text-xs text-gray-500">Define how many hours are allocated per story point for standalone bugs.</p>
-                <div><label class="block text-sm font-medium">Hours per Point (for Bugs)</label><input id="alloc-bug-hours" type="number" value="${defaultHoursPerPoint.toFixed(2)}" step="0.1" class="form-input"></div>
-            </div>
-        `;
+             <div class="p-3 border rounded-md">
+                <p class="text-xs text-gray-500 mb-2">Define how many hours are allocated per story point for standalone bugs.</p>
+                <label class="block text-sm font-medium">Hours per Point (for Bugs)</label>
+                <input id="alloc-bug-hours" type="number" value="${defaultHoursPerPoint.toFixed(2)}" step="0.1" class="form-input">
+            </div>`;
     }
+    
+    let schedulingPrefsHtml = `
+        <h4 class="text-md font-semibold mb-2 mt-4">Task Scheduling</h4>
+        <div class="p-3 border rounded-md">
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-3">
+                <div>
+                    <label class="block text-sm font-medium">"Create/Dev" Phase</label>
+                    <select id="schedule-create" class="form-input text-sm">
+                        <option value="week1" selected>Week 1</option>
+                        <option value="week2">Week 2</option>
+                        <option value="all">Both Weeks</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium">"Execute/Test" Phase</label>
+                    <select id="schedule-execute" class="form-input text-sm">
+                        <option value="week1">Week 1</option>
+                        <option value="week2" selected>Week 2</option>
+                        <option value="all">Both Weeks</option>
+                    </select>
+                </div>
+            </div>
+            <div class="mt-3">
+                <label class="block text-sm font-medium mb-1">"Verify/Bugs" Days</label>
+                <div id="schedule-verify-days" class="grid grid-cols-3 sm:grid-cols-5 gap-2">
+                    ${Object.keys(dayMeta).map(dayId => `
+                        <label for="day-cb-${dayId}" class="flex items-center space-x-2 p-1.5 border rounded-md hover:bg-gray-50 cursor-pointer">
+                            <input type="checkbox" id="day-cb-${dayId}" value="${dayId}" class="schedule-verify-day-cb h-4 w-4 rounded text-indigo-600 focus:ring-indigo-500">
+                            <span class="text-xs font-medium">${dayMeta[dayId].name.substring(0,3)} (W${dayMeta[dayId].week})</span>
+                        </label>
+                    `).join('')}
+                </div>
+            </div>
+        </div>
+    `;
 
-    const modalContent = showModal(`
-        <h3 class="text-lg font-semibold mb-4">Set Task Allocation</h3>
-        ${storyAllocationHtml}
-        ${bugAllocationHtml}
-        <div class="flex justify-end mt-6 gap-3">
+    modalContent.innerHTML = `
+        <h3 class="text-lg font-semibold mb-4">Set Task Allocation & Scheduling</h3>
+        <div class="max-h-[65vh] overflow-y-auto pr-2">
+            ${storyAllocationHtml}
+            ${bugAllocationHtml}
+            ${schedulingPrefsHtml}
+        </div>
+        <div class="flex justify-end mt-6 gap-3 border-t pt-4">
             <button onclick="handleCreateNewBoardClick()" class="px-4 py-2 bg-gray-200 rounded-md">Back</button>
             <button id="confirm-alloc" class="px-4 py-2 bg-indigo-600 text-white rounded-md">Create Board</button>
         </div>
-    `);
+    `;
+
+    if (hasStories) {
+        renderStoryAllocations();
+        modalContent.querySelector('#story-allocations-container').addEventListener('input', (e) => {
+            const el = e.target;
+            const index = el.dataset.index;
+            if (index && storySubTasks[index]) {
+                storySubTasks[index][el.dataset.field] = el.value;
+                renderStoryAllocations();
+            }
+        });
+        modalContent.querySelector('#story-allocations-container').addEventListener('click', (e) => {
+            if (e.target.classList.contains('remove-story-alloc-btn')) {
+                storySubTasks.splice(e.target.dataset.index, 1);
+                renderStoryAllocations();
+            }
+        });
+        modalContent.querySelector('#add-story-alloc-btn').onclick = () => {
+            storySubTasks.push({ name: '', type: 'create', percentage: 0 });
+            renderStoryAllocations();
+        };
+    }
+    
+    const defaultVerifyDays = ['w2d3', 'w2d4', 'w2d5'];
+    defaultVerifyDays.forEach(dayId => {
+        const cb = modalContent.querySelector(`#day-cb-${dayId}`);
+        if(cb) cb.checked = true;
+    });
 
     modalContent.querySelector('#confirm-alloc').onclick = () => {
-        let storyPercentages = { create: 0, execute: 0, bugs: 0 };
         if (hasStories) {
-            const create = parseInt(document.getElementById('alloc-create').value, 10);
-            const execute = parseInt(document.getElementById('alloc-execute').value, 10);
-            const bugs = parseInt(document.getElementById('alloc-bugs').value, 10);
-            if (create + execute + bugs !== 100) {
-                return showMessageModal("Story percentages must add up to 100.");
+            const totalPercentage = storySubTasks.reduce((sum, task) => sum + (parseInt(task.percentage, 10) || 0), 0);
+            if (totalPercentage !== 100) {
+                return showMessageModal(`Story sub-task percentages must add up to 100%. Current total is ${totalPercentage}%.`);
             }
-            storyPercentages = { create, execute, bugs };
+             if (storySubTasks.some(t => !t.name.trim())) {
+                return showMessageModal("All story sub-tasks must have a name.");
+            }
         }
         
         let bugHoursPerPoint = defaultHoursPerPoint;
@@ -820,8 +1250,21 @@ function showAllocationDialog(parsedTasks) {
                 return showMessageModal("Please enter a valid number for bug hours per point.");
             }
         }
+        
+        const scheduling = {
+            create: document.getElementById('schedule-create').value,
+            execute: document.getElementById('schedule-execute').value,
+            verify: Array.from(document.querySelectorAll('.schedule-verify-day-cb:checked')).map(cb => cb.value)
+        };
+        
+        if (scheduling.verify.length === 0 && (hasBugs || storySubTasks.some(t => t.type === 'verify'))) {
+            return showMessageModal("Please select at least one day for bug verification tasks.");
+        }
 
-        const newSprint = createSprintFromParsedTasks(parsedTasks, storyPercentages, bugHoursPerPoint);
+        const allocationConfig = { storySubTasks, bugHoursPerPoint, scheduling };
+        const newSprint = createSprintFromParsedTasks(parsedTasks, allocationConfig, startDate);
+        newSprint.allocationConfig = allocationConfig; // Store config with the sprint
+        
         const newSprintId = `sprint-${Date.now()}`;
         newSprint.sprintId = newSprintId;
         newSprint.sprintName = `Sprint ${Object.keys(appState.sprints).length + 1}`;
@@ -834,37 +1277,34 @@ function showAllocationDialog(parsedTasks) {
 
 function parsePastedText(text) {
     return text.split('\n')
-        .filter(line => line.trim() !== '' && line.toLowerCase().indexOf('title') === -1)
+        .filter(line => line.trim() !== '')
         .map(line => {
-            const parts = line.split(/\t|  +/).map(p => p.trim());
-            let id, title, type, pointsStr;
-            if (parts.length > 4) { 
-                 id = parts[0];
-                 pointsStr = parts[parts.length - 1];
-                 type = parts[parts.length - 2];
-                 title = parts.slice(1, -2).join(' ');
-            } else if (parts.length === 4) {
-                 [id, title, type, pointsStr] = parts;
-            } else {
-                return null;
-            }
+            const parts = line.split('\t').map(p => p.trim());
+            if (parts.length < 4) return null;
 
+            const id = parts[0];
+            const title = parts[1];
+            const pointsStr = parts[2];
+            const type = parts[3].toUpperCase();
+            
             const points = parseInt(pointsStr, 10);
-            if (id && title && ['S', 'B'].includes(type.toUpperCase()) && !isNaN(points)) {
-                return { ticketId: id, title, type: type.toUpperCase(), points };
+            if (id && title && ['S', 'B'].includes(type) && !isNaN(points)) {
+                return { ticketId: id, title, type, points };
             }
             return null;
         })
         .filter(Boolean);
 }
 
-function createSprintFromParsedTasks(parsedTasks, storyPercentages, bugHoursPerPoint) {
-    let newSprint = createNewSprintState("New Sprint");
+function createSprintFromParsedTasks(parsedTasks, allocationConfig, startDate) {
+    let newSprint = createNewSprintState("New Sprint", startDate);
+
     const totalStoryPoints = parsedTasks.filter(t => t.type === 'S').reduce((sum, task) => sum + task.points, 0);
     const totalBugPoints = parsedTasks.filter(t => t.type === 'B').reduce((sum, task) => sum + task.points, 0);
 
-    const totalWorkHours = 53 - 8;
-    const estimatedBugHours = totalBugPoints * bugHoursPerPoint;
+    const totalCapacity = Object.values(newSprint.dailyLimits).reduce((a,b) => a+b, 0);
+    const totalWorkHours = totalCapacity - DEMO_PREP_HOURS;
+    const estimatedBugHours = totalBugPoints * allocationConfig.bugHoursPerPoint;
     const remainingHoursForStories = totalWorkHours - estimatedBugHours;
     
     const storyHoursPerPoint = totalStoryPoints > 0 ? remainingHoursForStories / totalStoryPoints : 0;
@@ -875,67 +1315,101 @@ function createSprintFromParsedTasks(parsedTasks, storyPercentages, bugHoursPerP
         const autoLink = `https://oneline.atlassian.net/browse/${pt.ticketId}`;
 
         if (pt.type === 'B') {
-            const taskHours = pt.points * bugHoursPerPoint;
-            newSprint.tasks[taskIdBase] = { name: 'Verify Bug', ticketId: pt.ticketId, type: 'verify', totalHours: taskHours, link: autoLink, points: pt.points };
+            const taskHours = pt.points * allocationConfig.bugHoursPerPoint;
+            newSprint.tasks[taskIdBase] = { name: 'Verify Bug', title: pt.title, ticketId: pt.ticketId, type: 'verify', totalHours: taskHours, link: autoLink, points: pt.points };
         } else { // 'S'
-            const taskHours = pt.points * storyHoursPerPoint;
-            newSprint.tasks[`${taskIdBase}_c`] = { name: 'Create TCs', ticketId: pt.ticketId, type: 'create', totalHours: taskHours * (storyPercentages.create / 100), link: autoLink, points: pt.points };
-            newSprint.tasks[`${taskIdBase}_e`] = { name: 'Execute TCs', ticketId: pt.ticketId, type: 'execute', totalHours: taskHours * (storyPercentages.execute / 100), link: autoLink, points: pt.points };
-            newSprint.tasks[`${taskIdBase}_v`] = { name: 'C/V Bugs', ticketId: pt.ticketId, type: 'verify', totalHours: taskHours * (storyPercentages.bugs / 100), link: autoLink, points: pt.points };
+            const storyTotalHours = pt.points * storyHoursPerPoint;
+            allocationConfig.storySubTasks.forEach((subTask, i) => {
+                const subTaskHours = storyTotalHours * (subTask.percentage / 100);
+                if (subTaskHours > 0.01) {
+                     newSprint.tasks[`${taskIdBase}_${i}`] = { 
+                        name: subTask.name, 
+                        title: pt.title, 
+                        ticketId: pt.ticketId, 
+                        type: subTask.type,
+                        totalHours: subTaskHours, 
+                        link: autoLink, 
+                        points: pt.points 
+                    };
+                }
+            });
         }
     });
-    newSprint.tasks['t_demo'] = { name: 'Demo Prep', ticketId: 'N/A', type: 'demo', totalHours: 8.0, points: 0 };
-    newSprint.schedule = distributeTasksLogically(newSprint.tasks, newSprint.dailyLimits);
+    
+    newSprint.tasks['t_demo'] = { name: 'Demo Prep', ticketId: 'N/A', type: 'demo', totalHours: DEMO_PREP_HOURS, points: 0, title: 'Sprint Demo Preparation' };
+
+    newSprint.schedule = distributeTasksLogically(newSprint.tasks, newSprint.dailyLimits, allocationConfig.scheduling);
     return newSprint;
 }
 
-function distributeTasksLogically(tasks, dailyLimits) {
+function distributeTasksLogically(tasks, dailyLimits, scheduling) {
     const schedule = {};
     const dayIds = Object.keys(dayMeta);
     const dayCapacities = { ...dailyLimits };
     dayIds.forEach(d => schedule[d] = []);
 
-    const taskQueues = {
-        create: Object.entries(tasks).filter(([, t]) => t.type === 'create').map(([id, t]) => ({ id, ...t, remaining: t.totalHours })),
-        execute: Object.entries(tasks).filter(([, t]) => t.type === 'execute').map(([id, t]) => ({ id, ...t, remaining: t.totalHours })),
-        verify: Object.entries(tasks).filter(([, t]) => t.type === 'verify').map(([id, t]) => ({ id, ...t, remaining: t.totalHours })),
-        demo: Object.entries(tasks).filter(([, t]) => t.type === 'demo').map(([id, t]) => ({ id, ...t, remaining: t.totalHours })),
-    };
-
-    const scheduleTaskType = (queue, daysToSchedule) => {
-        let taskIndex = 0;
-        let passes = 0;
-        while (queue.some(t => t.remaining > 0.01) && passes < 20) {
-            for (const dayId of daysToSchedule) {
-                let dayCapacity = dayCapacities[dayId];
-                if (dayCapacity <= 0) continue;
-                for (let i = 0; i < queue.length; i++) {
-                    let task = queue[taskIndex % queue.length];
-                    taskIndex++;
-                    if (task.remaining > 0) {
-                        const timeToLog = Math.min(dayCapacity, task.remaining, 2); 
-                        if (timeToLog > 0.01) {
-                            schedule[dayId].push({ id: `s_${dayId}_${task.id}_${Math.random()}`, taskId: task.id, hours: timeToLog, subTasks: [] });
-                            task.remaining -= timeToLog;
-                            dayCapacities[dayId] -= timeToLog;
-                            dayCapacity -= timeToLog;
-                        }
-                    }
-                    if (dayCapacity <= 0) break;
-                }
-            }
-            passes++;
-        }
-    };
-    
     const week1Days = dayIds.filter(d => dayMeta[d].week === 1);
     const week2Days = dayIds.filter(d => dayMeta[d].week === 2);
 
-    scheduleTaskType(taskQueues.create, week1Days);
-    scheduleTaskType(taskQueues.execute, week2Days);
-    scheduleTaskType(taskQueues.verify, dayIds);
-    scheduleTaskType(taskQueues.demo, dayIds);
+    const taskQueues = {
+        create: Object.entries(tasks).filter(([, t]) => t.type === 'create').map(([id, t]) => ({ id, ...t, remaining: t.totalHours })),
+        execute: Object.entries(tasks).filter(([, t]) => t.type === 'execute').map(([id, t]) => ({ id, ...t, remaining: t.totalHours })),
+        verify: Object.entries(tasks).filter(([, t]) => t.type === 'verify').map(([id,t]) => ({id,...t, remaining: t.totalHours})),
+        demo: Object.entries(tasks).filter(([, t]) => t.type === 'demo').map(([id, t]) => ({ id, ...t, remaining: t.totalHours })),
+    };
+
+    const scheduleTask = (task, days) => {
+        for (const dayId of days) {
+            if (task.remaining <= 0.01) break;
+            const dayCapacity = dayCapacities[dayId] || 0;
+            const timeToLog = Math.min(dayCapacity, task.remaining);
+            if (timeToLog > 0.01) {
+                 schedule[dayId].push({ id: `s_${dayId}_${task.id}_${Math.random()}`, taskId: task.id, hours: timeToLog, subTasks: [] });
+                 task.remaining -= timeToLog;
+                 dayCapacities[dayId] -= timeToLog;
+            }
+        }
+    };
     
+    const getDaysForPhase = (phase) => {
+        if (phase === 'week1') return week1Days;
+        if (phase === 'week2') return week2Days;
+        return dayIds;
+    };
+    
+    const createDays = getDaysForPhase(scheduling.create);
+    const executeDays = getDaysForPhase(scheduling.execute);
+    const verifyDays = scheduling.verify;
+
+    taskQueues.create.forEach(task => scheduleTask(task, createDays));
+    taskQueues.execute.forEach(task => scheduleTask(task, executeDays));
+    taskQueues.verify.forEach(task => scheduleTask(task, verifyDays));
+    
+    const demoTask = taskQueues.demo[0];
+    if(demoTask) {
+        const allDaysUntilW2Thu = dayIds.slice(0, -1);
+        const workingDays = allDaysUntilW2Thu.filter(dayId => dailyLimits[dayId] > 0);
+        
+        if (workingDays.length > 0) {
+            const hoursPerDay = demoTask.totalHours / workingDays.length;
+            workingDays.forEach(dayId => {
+                const timeToLog = Math.min(dayCapacities[dayId] || 0, hoursPerDay);
+                if (timeToLog > 0.01) {
+                    schedule[dayId].push({ id: `s_${dayId}_${demoTask.id}_demo`, taskId: demoTask.id, hours: timeToLog, subTasks: [] });
+                    dayCapacities[dayId] -= timeToLog;
+                    demoTask.remaining -= timeToLog;
+                }
+            });
+        }
+        // If any demo time remains (e.g., due to rounding or full days), add it to the last possible day
+        if (demoTask.remaining > 0.01) {
+            const lastDay = 'w2d4';
+             const existingDemo = schedule[lastDay].find(t => t.taskId === demoTask.id);
+             if (existingDemo) existingDemo.hours += demoTask.remaining;
+             else schedule[lastDay].push({ id: `s_${lastDay}_${demoTask.id}_demo`, taskId: demoTask.id, hours: demoTask.remaining, subTasks: [] });
+        }
+    }
+
     dayIds.forEach(dayId => {
         const tasksOnDay = schedule[dayId];
         const consolidated = {};
@@ -1039,8 +1513,9 @@ function handleImportClick(overwriteCurrent = false) {
             try {
                 const parsedTasks = parsePastedText(dataStr);
                 if (parsedTasks.length > 0) {
-                    hideModal();
-                    showAllocationDialog(parsedTasks);
+                    showCalendarModal('Select Sprint Start Date', (startDate) => {
+                         showAllocationDialog(parsedTasks, startDate);
+                    });
                 } else {
                     showMessageModal(
                         "Import failed: The data is not a valid sprint plan (JSON). If pasting a ticket list, ensure it follows the format: ID, Title, Type, Points.", 
@@ -1076,30 +1551,58 @@ function handleDeleteSprint() {
 }
 
 // --- UTILITIES & HELPERS ---
+function getDateForDayId(startDateStr, dayId) {
+    if (!startDateStr) return null;
+    try {
+        const startDate = new Date(startDateStr + 'T00:00:00'); 
+        const offset = dayOffsets[dayId];
+        if (typeof offset === 'undefined') return null;
+
+        const targetDate = new Date(startDate);
+        targetDate.setDate(startDate.getDate() + offset);
+        return targetDate;
+    } catch (e) {
+        console.error("Error parsing start date:", startDateStr, e);
+        return null;
+    }
+}
+
 function getTaskSummaries(sprint) {
     const storySummary = {};
     const bugSummary = [];
-    const allTasks = { ...sprint.tasks };
-    
-    for (const taskId in allTasks) {
-        const task = allTasks[taskId];
-        if (task.ticketId === 'N/A') continue;
-        
-        if (task.type === 'create' || task.type === 'execute') {
-             if (!storySummary[task.ticketId]) storySummary[task.ticketId] = {};
-             storySummary[task.ticketId][task.name] = (storySummary[task.ticketId][task.name] || 0) + task.totalHours;
-        } else if(task.type === 'verify') {
-            if(task.name === 'C/V Bugs') {
-                if (!storySummary[task.ticketId]) storySummary[task.ticketId] = {};
-                storySummary[task.ticketId][task.name] = (storySummary[task.ticketId][task.name] || 0) + task.totalHours;
-            } else { 
+
+    Object.values(sprint.tasks).forEach(task => {
+        if (task.ticketId === 'N/A') return;
+
+        const isBug = task.type === 'verify' && task.name !== 'C/V Bugs';
+
+        if (isBug) {
+            const existingBug = bugSummary.find(b => b.ticketId === task.ticketId);
+            if (existingBug) {
+                existingBug.totalHours += task.totalHours;
+            } else {
                 bugSummary.push({
                     ticketId: task.ticketId,
-                    totalHours: task.totalHours
+                    totalHours: task.totalHours,
+                    title: task.title,
+                    link: task.link
                 });
             }
+        } else {
+            if (!storySummary[task.ticketId]) {
+                storySummary[task.ticketId] = {
+                    title: task.title,
+                    link: task.link,
+                    subTasks: {}
+                };
+            }
+            if (!storySummary[task.ticketId].subTasks[task.name]) {
+                storySummary[task.ticketId].subTasks[task.name] = 0;
+            }
+            storySummary[task.ticketId].subTasks[task.name] += task.totalHours;
         }
-    }
+    });
+
     return { storySummary, bugSummary };
 }
 
@@ -1148,35 +1651,45 @@ function extractTicketIdFromUrl(text) {
     return null;
 }
 
-function createNewSprintState(name) {
+function createNewSprintState(name, startDate = null) {
     const sprintId = `sprint-${Date.now()}`;
+    const defaultLimits = { w1d1: 4.0, w1d2: 6.75, w1d3: 5.75, w1d4: 2.75, w1d5: 6.75, w2d1: 6.75, w2d2: 6.75, w2d3: 6.75, w2d4: 4.75, w2d5: 3.5 };
     return {
         sprintId,
         sprintName: name,
-        dailyLimits: { w1d1: 4.0, w1d2: 6.75, w1d3: 5.75, w1d4: 2.75, w1d5: 6.75, w2d1: 6.75, w2d2: 6.75, w2d3: 6.75, w2d4: 6.75 },
+        startDate: startDate,
+        dailyLimits: { ...defaultLimits },
+        defaultDailyLimits: { ...defaultLimits },
+        daysOff: Object.keys(dayMeta).reduce((acc, dayId) => ({...acc, [dayId]: 'none'}), {}),
         tasks: {},
         schedule: {}
     };
 }
 
 function createDefaultSampleSprintState(name) {
-    const state = createNewSprintState(name);
+    const today = new Date();
+    const startDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+    const state = createNewSprintState(name, startDate);
+
     state.tasks = {
-        't1': { name: 'Demo Prep', ticketId: 'N/A', type: 'demo', totalHours: 8.0, link: null, points: 0 },
-        't2': { name: 'Create TCs', ticketId: '10096', type: 'create', totalHours: 11.25, link: 'https://oneline.atlassian.net/browse/NCOP-10096', points: 5 },
-        't3': { name: 'Create TCs', ticketId: '9897', type: 'create', totalHours: 6.75, link: null, points: 3 },
-        't4': { name: 'Execute TCs', ticketId: '10096', type: 'execute', totalHours: 9.0, link: null, points: 5 },
-        't5': { name: 'Execute TCs', ticketId: '9897', type: 'execute', totalHours: 5.4, link: null, points: 3 },
-        't6': { name: 'Verify Bug', ticketId: '9853', type: 'verify', totalHours: 4.5, link: null, points: 2 },
-        't7': { name: 'C/V Bugs', ticketId: '9897', type: 'verify', totalHours: 1.35, link: null, points: 3 },
-        't8': { name: 'Verify Bug', ticketId: '9744', type: 'verify', totalHours: 4.5, link: null, points: 2 },
-        't9': { name: 'C/V Bugs', ticketId: '10096', type: 'verify', totalHours: 2.25, link: null, points: 5 },
+        't_demo': { name: 'Demo Prep', ticketId: 'N/A', type: 'demo', totalHours: DEMO_PREP_HOURS, points: 0, title: 'Sprint Demo Preparation' },
+        't2': { name: 'Create TCs', ticketId: '10096', title: 'Implement New User Dashboard', type: 'create', totalHours: 11.25, link: 'https://oneline.atlassian.net/browse/NCOP-10096', points: 5 },
+        't3': { name: 'Create TCs', ticketId: '9897', title: 'Develop Reporting Module', type: 'create', totalHours: 6.75, link: null, points: 3 },
+        't4': { name: 'Execute TCs', ticketId: '10096', title: 'Implement New User Dashboard', type: 'execute', totalHours: 9.0, link: null, points: 5 },
+        't5': { name: 'Execute TCs', ticketId: '9897', title: 'Develop Reporting Module', type: 'execute', totalHours: 5.4, link: null, points: 3 },
+        't6': { name: 'Verify Bug', ticketId: '9853', title: 'Fix Login Page CSS Issue', type: 'verify', totalHours: 4.5, link: null, points: 2 },
+        't7': { name: 'C/V Bugs', ticketId: '9897', title: 'Develop Reporting Module', type: 'verify', totalHours: 1.35, link: null, points: 3 },
+        't8': { name: 'Verify Bug', ticketId: '9744', title: 'API returning incorrect status code', type: 'verify', totalHours: 4.5, link: null, points: 2 },
+        't9': { name: 'C/V Bugs', ticketId: '10096', title: 'Implement New User Dashboard', type: 'verify', totalHours: 2.25, link: null, points: 5 },
     };
-    state.schedule = distributeTasksLogically(state.tasks, state.dailyLimits);
+    const defaultConfig = {
+        scheduling: { create: 'week1', execute: 'week2', verify: ['w2d3', 'w2d4', 'w2d5'] }
+    };
+    state.schedule = distributeTasksLogically(state.tasks, state.dailyLimits, defaultConfig.scheduling);
     return state;
 }
 
-// --- MODAL SYSTEM ---
+// --- MODAL & CALENDAR SYSTEM ---
 function showModal(content) {
     const modal = document.getElementById('generic-modal');
     modal.innerHTML = `<div class="modal-content">${content}</div>`;
@@ -1216,6 +1729,70 @@ function showConfirmationModal(message, onConfirm, title = "Confirmation") {
         onConfirm();
     };
 }
+
+function generateCalendar(year, month, onDateSelect) {
+    const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const firstDayOfMonth = new Date(year, month, 1);
+    const firstDayIndex = firstDayOfMonth.getDay() === 0 ? 6 : firstDayOfMonth.getDay() - 1; // 0 for Mon, 6 for Sun
+
+    const calendarEl = document.createElement('div');
+
+    let html = `
+        <div class="flex justify-between items-center mb-4">
+            <button id="prev-month" class="p-2 rounded-full hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-indigo-500"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path></svg></button>
+            <span class="font-semibold text-lg">${monthNames[month]} ${year}</span>
+            <button id="next-month" class="p-2 rounded-full hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-indigo-500"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg></button>
+        </div>
+        <div class="grid grid-cols-7 text-center text-xs text-gray-500 mb-2 font-medium">
+            <div>Mo</div><div>Tu</div><div>We</div><div>Th</div><div>Fr</div><div>Sa</div><div>Su</div>
+        </div>
+        <div class="grid grid-cols-7 gap-1">
+    `;
+    for (let i = 0; i < firstDayIndex; i++) {
+        html += `<div></div>`;
+    }
+    for (let day = 1; day <= daysInMonth; day++) {
+        const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+        html += `<div class="p-2 text-center rounded-full cursor-pointer hover:bg-indigo-100 transition-colors" data-date="${dateStr}">${day}</div>`;
+    }
+    html += `</div>`;
+    calendarEl.innerHTML = html;
+
+    calendarEl.querySelector('#prev-month').onclick = () => {
+        const newDate = new Date(year, month - 1, 1);
+        const newCalendar = generateCalendar(newDate.getFullYear(), newDate.getMonth(), onDateSelect);
+        calendarEl.replaceWith(newCalendar);
+    };
+    calendarEl.querySelector('#next-month').onclick = () => {
+        const newDate = new Date(year, month + 1, 1);
+        const newCalendar = generateCalendar(newDate.getFullYear(), newDate.getMonth(), onDateSelect);
+        calendarEl.replaceWith(newCalendar);
+    };
+    calendarEl.querySelectorAll('[data-date]').forEach(el => {
+        el.onclick = () => {
+            onDateSelect(el.dataset.date);
+        };
+    });
+    return calendarEl;
+}
+
+function showCalendarModal(title, onConfirm, onCancel = hideModal) {
+    const modalContent = showModal(`
+        <h3 class="text-lg font-semibold mb-4">${title}</h3>
+        <div id="calendar-container" class="max-w-xs mx-auto"></div>
+        <div class="flex justify-end mt-4">
+            <button id="calendar-cancel-btn" class="px-4 py-2 bg-gray-200 rounded-md">Cancel</button>
+        </div>
+    `);
+    const calendarContainer = modalContent.querySelector('#calendar-container');
+    const calendar = generateCalendar(new Date().getFullYear(), new Date().getMonth(), (selectedDate) => {
+        onConfirm(selectedDate);
+    });
+    calendarContainer.appendChild(calendar);
+    modalContent.querySelector('#calendar-cancel-btn').onclick = onCancel;
+}
+
 
 // --- INITIALIZATION ---
 window.onload = () => {
