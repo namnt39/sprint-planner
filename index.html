@@ -129,7 +129,7 @@
     
 <script>
 // --- GLOBAL STATE & CONSTANTS ---
-const APP_DATA_KEY = 'multiSprintPlannerState_v45_dynamic_alloc';
+const APP_DATA_KEY = 'multiSprintPlannerState_v51_final_swap';
 let appState = { activeSprintId: null, sprints: {} };
 
 const dayMeta = {
@@ -416,6 +416,7 @@ function generateWeekHtml(days, sprint) {
                             </div>
                         </div>
                         <div class="flex flex-col gap-1.5 ml-2">
+                             <button class="action-btn" data-action="edit-hours" title="Adjust Hours"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg></button>
                             <button class="action-btn" data-action="checklist" title="Manage Sub-tasks & Progress"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 6.75h7.5M8.25 12h7.5m-7.5 5.25h7.5M3.75 6.75h.007v.008H3.75V6.75zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zM3.75 12h.007v.008H3.75V12zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm-.375 5.25h.007v.008H3.75v-.008zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" /></svg></button>
                         </div>
                     </div>
@@ -479,6 +480,7 @@ function handleCardClick(e) {
 
     if (action === 'checklist') handleChecklistClick(scheduledId);
     if (action === 'edit-link') handleParentLinkClick(scheduledId);
+    if (action === 'edit-hours') handleEditTaskHours(scheduledId);
 }
 
 
@@ -513,122 +515,408 @@ function handleDrop(e) {
     if (!sourceScheduledId) return;
     
     const { dayId: targetDayId } = findDayFromElement(e.target);
+    const { dayId: sourceDayId } = findScheduledTaskById(sourceScheduledId);
     
-    if (targetDayId) {
-        showDropSwapModal(sourceScheduledId, targetDayId);
+    if (targetDayId && sourceDayId && targetDayId !== sourceDayId) {
+        showAdvancedDropModal(sourceScheduledId, targetDayId);
     }
 }
 
-// --- TASK MANIPULATION LOGIC ---
-function showDropSwapModal(sourceScheduledId, targetDayId) {
-    const sprint = appState.sprints[appState.activeSprintId];
-    const { scheduledTask: sourceTaskInfo } = findScheduledTaskById(sourceScheduledId);
-    const sourceTask = sprint.tasks[sourceTaskInfo.taskId];
-    const targetTasksOnDay = sprint.schedule[targetDayId] || [];
+// --- TASK MANIPULATION LOGIC (New Advanced Drag/Drop) ---
 
-    let optionsHtml = `<p class="mb-4 text-sm text-gray-600">Select a task on <strong>${dayMeta[targetDayId].name}</strong> to swap with <strong>${sourceTask.name} (${sourceTask.ticketId})</strong>.</p>`;
-    
-    if (targetTasksOnDay.length === 0) {
-        optionsHtml += `<p class="text-center text-gray-500">This day is empty. You can only move the task here directly.</p>`;
-    } else {
-        optionsHtml += targetTasksOnDay.map(targetScheduledTask => {
-            const targetTask = sprint.tasks[targetScheduledTask.taskId];
-            const hourDiff = sourceTaskInfo.hours - targetScheduledTask.hours;
-            const diffClass = hourDiff > 0 ? 'text-red-500' : 'text-green-500';
-            const diffText = hourDiff.toFixed(2) + 'h';
-            return `<button data-target-id="${targetScheduledTask.id}" class="p-3 border rounded-md text-left hover:bg-gray-100 transition-colors w-full">
-                        <div class="flex justify-between items-center">
-                            <strong class="text-sm">${targetTask.name} (${targetTask.ticketId})</strong>
-                            <span class="text-xs font-mono ${diffClass}">Swap diff: ${diffText}</span>
-                        </div>
-                    </button>`;
-        }).join('');
-    }
+function showAdvancedDropModal(sourceScheduledId, targetDayId) {
+    const sprint = appState.sprints[appState.activeSprintId];
+    const { scheduledTask: sourceTaskInfo, dayId: sourceDayId } = findScheduledTaskById(sourceScheduledId);
+    const sourceTaskDefinition = sprint.tasks[sourceTaskInfo.taskId];
 
     const modalContent = showModal(`
-        <h3 class="text-lg font-semibold text-gray-800 mb-2">Move or Swap Task</h3>
-        <div id="swap-options" class="space-y-2 max-h-64 overflow-y-auto pr-2">${optionsHtml}</div>
+        <h3 class="text-lg font-semibold text-gray-800 mb-4">Move Task: ${sourceTaskDefinition.name} (${sourceTaskDefinition.ticketId})</h3>
+        <p class="text-sm text-gray-600 mb-4">You are moving a task from <strong>${dayMeta[sourceDayId].name}</strong> to <strong>${dayMeta[targetDayId].name}</strong>. Choose an action:</p>
+        
+        <div class="space-y-3">
+            <button id="drop-action-swap" class="w-full text-left p-4 border rounded-lg hover:bg-gray-50 transition-colors">
+                <strong class="text-indigo-600">Swap Tasks</strong>
+                <p class="text-xs text-gray-600">Choose a task on the target day to exchange places with. The time allocations for each day will remain the same.</p>
+            </button>
+            <button id="drop-action-split" class="w-full text-left p-4 border rounded-lg hover:bg-gray-50 transition-colors">
+                <strong class="text-indigo-600">Move a Part (Split)</strong>
+                <p class="text-xs text-gray-600">Move some hours from this task to the target day, adjusting hours on both days.</p>
+            </button>
+        </div>
+
         <div class="flex justify-end gap-3 mt-6">
             <button onclick="hideModal()" class="px-4 py-2 bg-gray-200 rounded-md">Cancel</button>
-            <button id="move-task-btn" class="px-4 py-2 bg-indigo-600 text-white rounded-md">Move & Split</button>
         </div>
     `);
 
-    modalContent.querySelector('#move-task-btn').onclick = () => {
-         moveTaskToDay(sourceScheduledId, targetDayId);
-         hideModal();
-    };
+    modalContent.querySelector('#drop-action-swap').onclick = () => showSwapSelectionModal(sourceScheduledId, targetDayId);
+    modalContent.querySelector('#drop-action-split').onclick = () => showSplitAmountModal(sourceScheduledId, targetDayId);
+}
+
+function showSwapSelectionModal(sourceScheduledId, targetDayId) {
+    const sprint = appState.sprints[appState.activeSprintId];
+    const { scheduledTask: sourceTaskInfo, dayId: sourceDayId } = findScheduledTaskById(sourceScheduledId);
+    const sourceTaskDefinition = sprint.tasks[sourceTaskInfo.taskId];
+    const targetTasksOnDay = sprint.schedule[targetDayId] || [];
+
+    if (targetTasksOnDay.length === 0) {
+        return showMessageModal("Target day is empty, cannot swap. Try a different move action.", "Swap Failed");
+    }
+    
+    let optionsHtml = targetTasksOnDay.map(targetScheduledTask => {
+        const targetTaskDefinition = sprint.tasks[targetScheduledTask.taskId];
+
+        return `
+            <button data-target-id="${targetScheduledTask.id}" class="p-3 border rounded-md text-left hover:bg-indigo-50 transition-colors w-full">
+                <strong class="text-sm">Swap with: ${targetTaskDefinition.name} (${targetTaskDefinition.ticketId})</strong>
+                <div class="text-xs mt-2 text-gray-600">
+                    <p>• <strong>${sourceTaskDefinition.name}</strong> will move to ${dayMeta[targetDayId].name} and be allocated <strong>${targetScheduledTask.hours.toFixed(2)}h</strong>.</p>
+                    <p>• <strong>${targetTaskDefinition.name}</strong> will move to ${dayMeta[sourceDayId].name} and be allocated <strong>${sourceTaskInfo.hours.toFixed(2)}h</strong>.</p>
+                </div>
+            </button>`;
+    }).join('');
+
+    const modalContent = showModal(`
+        <h3 class="text-lg font-semibold text-gray-800 mb-2">Swap: ${sourceTaskDefinition.name} (${sourceTaskDefinition.ticketId})</h3>
+        <p class="text-sm text-gray-600 mb-4">Select a task on <strong>${dayMeta[targetDayId].name}</strong> to exchange places with. The hour allocations will be swapped as well.</p>
+        <div id="swap-options" class="space-y-2 max-h-64 overflow-y-auto pr-2">${optionsHtml}</div>
+        <div class="flex justify-end gap-3 mt-6">
+             <button onclick="showAdvancedDropModal('${sourceScheduledId}', '${targetDayId}')" class="px-4 py-2 bg-gray-200 rounded-md">Back</button>
+        </div>
+    `);
 
     modalContent.querySelector('#swap-options').addEventListener('click', (e) => {
         const targetButton = e.target.closest('button[data-target-id]');
         if (targetButton) {
-            const targetId = targetButton.dataset.targetId;
-            swapTasks(sourceScheduledId, targetId);
+            swapTasks(sourceScheduledId, targetButton.dataset.targetId);
             hideModal();
         }
     });
 }
 
-
-function moveTaskToDay(scheduledId, targetDayId) {
+function showSplitAmountModal(sourceScheduledId, targetDayId) {
     const sprint = appState.sprints[appState.activeSprintId];
-    const sourceInfo = findScheduledTaskById(scheduledId);
-    if (!sourceInfo || !sprint) return;
+    const { scheduledTask: sourceTaskInfo } = findScheduledTaskById(sourceScheduledId);
+    const taskDef = sprint.tasks[sourceTaskInfo.taskId];
 
-    const { dayId: sourceDayId, scheduledTask } = sourceInfo;
-    if (sourceDayId === targetDayId) return;
+    const modalContent = showModal(`
+        <h3 class="text-lg font-semibold text-gray-800 mb-2">Move a Part (Split)</h3>
+        <p class="text-sm text-gray-600 mb-4">How many hours of "<strong>${taskDef.name} - ${taskDef.ticketId}</strong>" do you want to move?</p>
+        <div>
+            <label for="split-hours-input" class="block text-sm font-medium text-gray-700">Hours to Move (Max: ${sourceTaskInfo.hours.toFixed(2)}h)</label>
+            <input id="split-hours-input" type="number" class="form-input mt-1" max="${sourceTaskInfo.hours}" min="0.25" step="0.25" value="1">
+        </div>
+        <div class="flex justify-end gap-3 mt-6">
+            <button onclick="showAdvancedDropModal('${sourceScheduledId}', '${targetDayId}')" class="px-4 py-2 bg-gray-200 rounded-md">Back</button>
+            <button id="next-split-btn" class="px-4 py-2 bg-indigo-600 text-white rounded-md">Next: Adjust Target Day</button>
+        </div>
+    `);
 
-    const targetDayCapacity = sprint.dailyLimits[targetDayId];
-    const targetDayScheduledHours = (sprint.schedule[targetDayId] || []).reduce((sum, t) => sum + t.hours, 0);
-    const availableCapacity = targetDayCapacity - targetDayScheduledHours;
+    modalContent.querySelector('#next-split-btn').onclick = () => {
+        const hoursToMove = parseFloat(modalContent.querySelector('#split-hours-input').value);
+        if (isNaN(hoursToMove) || hoursToMove <= 0 || hoursToMove > sourceTaskInfo.hours) {
+            showMessageModal("Please enter a valid number of hours to move.", "Invalid Input");
+            return;
+        }
+        showSplitTargetDayModal(sourceScheduledId, targetDayId, hoursToMove);
+    };
+}
 
-    if (availableCapacity <= 0) {
-        showMessageModal(`${dayMeta[targetDayId].name} is already at full capacity.`, "Move Failed");
-        return;
+function showSplitTargetDayModal(sourceScheduledId, targetDayId, hoursToMove) {
+    const sprint = appState.sprints[appState.activeSprintId];
+    const { scheduledTask: sourceTaskInfo } = findScheduledTaskById(sourceScheduledId);
+    const sourceTaskDefinition = sprint.tasks[sourceTaskInfo.taskId];
+    const targetTasksOnDay = [...(sprint.schedule[targetDayId] || [])];
+    
+    let tasksHtml = targetTasksOnDay.map((task, index) => {
+        const taskDef = sprint.tasks[task.taskId];
+        return `
+            <div class="grid grid-cols-12 gap-2 items-center">
+                <span class="text-sm font-medium truncate col-span-4" title="${taskDef.name} (${taskDef.ticketId})">${taskDef.name} (${taskDef.ticketId})</span>
+                <span class="text-sm font-mono text-center col-span-2">${task.hours.toFixed(2)}h</span>
+                <div class="col-span-3"><input type="number" class="form-input text-sm target-reduce-input" data-index="${index}" value="0" min="0" max="${task.hours}" step="0.25"></div>
+                <div class="col-span-3"><button class="text-xs px-2 py-1 bg-gray-200 rounded hover:bg-gray-300 w-full use-target-hours-btn" data-index="${index}">Use</button></div>
+            </div>
+        `;
+    }).join('<hr class="my-2 -mx-2">');
+    
+    if(targetTasksOnDay.length === 0){
+        tasksHtml = `<p class="text-center text-sm text-gray-500 col-span-3">Target day is empty. New task will be added if capacity allows.</p>`
     }
 
-    const hoursToMove = Math.min(scheduledTask.hours, availableCapacity);
-    
-    if (!sprint.schedule[targetDayId]) {
-        sprint.schedule[targetDayId] = [];
-    }
-    
-    const existingTaskOnTarget = sprint.schedule[targetDayId].find(t => t.taskId === scheduledTask.taskId);
+    const modalContent = showModal(`
+        <h3 class="text-lg font-semibold text-gray-800 mb-2">Adjust Target Day: ${dayMeta[targetDayId].name}</h3>
+        <div class="p-3 bg-indigo-50 border border-indigo-200 rounded-md mb-4 text-center">
+            <p class="text-sm text-indigo-800">Making space for <strong>${hoursToMove.toFixed(2)}h</strong> of "${sourceTaskDefinition.name}"</p>
+        </div>
+        
+        <div class="grid grid-cols-12 gap-2 font-bold text-xs uppercase text-gray-500 mb-2">
+            <span class="col-span-4">Task on Target Day</span>
+            <span class="text-center col-span-2">Current</span>
+            <span class="text-center col-span-3">Reduce By</span>
+            <span class="text-center col-span-3">Action</span>
+        </div>
+        <div id="target-day-tasks" class="space-y-2">${tasksHtml}</div>
+        
+        <div id="target-balance-notification" class="mt-4 p-2 text-center font-bold rounded-md"></div>
 
+        <div class="flex justify-end gap-3 mt-6">
+            <button onclick="showSplitAmountModal('${sourceScheduledId}', '${targetDayId}')" class="px-4 py-2 bg-gray-200 rounded-md">Back</button>
+            <button id="next-split-target-btn" class="px-4 py-2 bg-indigo-600 text-white rounded-md disabled:opacity-50">Next</button>
+        </div>
+    `);
+
+    const notification = modalContent.querySelector('#target-balance-notification');
+    const nextBtn = modalContent.querySelector('#next-split-target-btn');
+    const container = modalContent.querySelector('#target-day-tasks');
+    const inputs = container.querySelectorAll('.target-reduce-input');
+
+    const checkTargetBalance = () => {
+        const totalReduced = Array.from(inputs).reduce((sum, input) => sum + (parseFloat(input.value) || 0), 0);
+        const remaining = hoursToMove - totalReduced;
+        
+        const currentScheduled = targetTasksOnDay.reduce((sum, t) => sum + t.hours, 0);
+        const capacity = sprint.dailyLimits[targetDayId];
+        const newTotal = currentScheduled - totalReduced + hoursToMove;
+
+        // Disable/enable inputs based on balance
+        inputs.forEach(input => {
+             input.disabled = (remaining <= 0 && (parseFloat(input.value) || 0) === 0);
+        });
+        container.querySelectorAll('.use-target-hours-btn').forEach(btn => {
+            btn.disabled = (remaining <= 0);
+        });
+
+        if (newTotal > capacity + 0.01 && targetTasksOnDay.length > 0) {
+            notification.className = 'mt-4 p-2 text-center font-bold rounded-md bg-red-100 text-red-700';
+            notification.textContent = `This change exceeds day capacity (${newTotal.toFixed(2)}h / ${capacity.toFixed(2)}h). Reduce more hours.`;
+            nextBtn.disabled = true;
+            return;
+        }
+
+        if (Math.abs(remaining) < 0.01 || targetTasksOnDay.length === 0) {
+            notification.className = 'mt-4 p-2 text-center font-bold rounded-md bg-green-100 text-green-700';
+            notification.textContent = `Ready to move ${hoursToMove.toFixed(2)}h.`;
+            nextBtn.disabled = false;
+        } else {
+            notification.className = 'mt-4 p-2 text-center font-bold rounded-md bg-yellow-100 text-yellow-700';
+            notification.textContent = `You still need to reduce ${remaining.toFixed(2)}h.`;
+            nextBtn.disabled = true;
+        }
+    };
+    
+    container.addEventListener('input', e => {
+        if (e.target.classList.contains('target-reduce-input')) {
+            checkTargetBalance();
+        }
+    });
+
+    container.addEventListener('click', e => {
+        if (e.target.classList.contains('use-target-hours-btn')) {
+            const index = e.target.dataset.index;
+            const input = inputs[index];
+            const max = parseFloat(input.max);
+            
+            const otherInputsTotal = Array.from(inputs).reduce((sum, currentInput, i) => {
+                return i === parseInt(index) ? sum : sum + (parseFloat(currentInput.value) || 0);
+            }, 0);
+            
+            const needed = hoursToMove - otherInputsTotal;
+            input.value = Math.min(max, needed).toFixed(2);
+            checkTargetBalance();
+        }
+    });
+    
+    checkTargetBalance();
+
+    nextBtn.onclick = () => {
+        const reductions = Array.from(inputs).map((input, index) => ({
+            scheduledId: targetTasksOnDay[index].id,
+            amount: parseFloat(input.value) || 0
+        })).filter(r => r.amount > 0);
+        
+        showSplitSourceDayModal(sourceScheduledId, targetDayId, hoursToMove, reductions);
+    };
+}
+
+function showSplitSourceDayModal(sourceScheduledId, targetDayId, hoursToMove, targetReductions) {
+    const sprint = appState.sprints[appState.activeSprintId];
+    const { dayId: sourceDayId } = findScheduledTaskById(sourceScheduledId);
+    const otherTasksOnSource = sprint.schedule[sourceDayId].filter(t => t.id !== sourceScheduledId);
+
+    let tasksHtml = '';
+    if (otherTasksOnSource.length > 0) {
+        tasksHtml = otherTasksOnSource.map((task, index) => {
+            const taskDef = sprint.tasks[task.taskId];
+            return `
+                <div class="grid grid-cols-12 gap-2 items-center">
+                    <span class="text-sm font-medium truncate col-span-4" title="${taskDef.name} (${taskDef.ticketId})">${taskDef.name} (${taskDef.ticketId})</span>
+                    <span class="text-sm font-mono text-center col-span-2">${task.hours.toFixed(2)}h</span>
+                    <div class="col-span-3"><input type="number" class="form-input text-sm source-add-input" data-index="${index}" value="0" min="0" step="0.25"></div>
+                    <div class="col-span-3"><button class="text-xs px-2 py-1 bg-gray-200 rounded hover:bg-gray-300 w-full use-source-hours-btn" data-index="${index}">Use</button></div>
+                </div>
+            `;
+        }).join('<hr class="my-2 -mx-2">');
+    } else {
+        tasksHtml = `<p class="text-center text-sm text-gray-500">No other tasks on this day to move time to. The source task will be reduced.</p>`;
+    }
+
+    const modalContent = showModal(`
+        <h3 class="text-lg font-semibold text-gray-800 mb-2">Adjust Source Day</h3>
+        <p class="text-sm text-gray-600 mb-4">You have freed up <strong>${hoursToMove.toFixed(2)}h</strong> on <strong>${dayMeta[sourceDayId].name}</strong>. You can optionally re-assign this time to other tasks on the same day.</p>
+        
+        <div class="grid grid-cols-12 gap-2 font-bold text-xs uppercase text-gray-500 mb-2">
+            <span class="col-span-4">Task</span>
+            <span class="text-center col-span-2">Current</span>
+            <span class="text-center col-span-3">Add Hours</span>
+            <span class="text-center col-span-3">Action</span>
+        </div>
+        <div id="source-day-tasks" class="space-y-1">${tasksHtml}</div>
+        
+        <div id="source-balance-notification" class="mt-4 p-2 text-center font-bold rounded-md"></div>
+
+        <div class="flex justify-end gap-3 mt-6">
+            <button onclick="showSplitTargetDayModal('${sourceScheduledId}', '${targetDayId}', ${hoursToMove})" class="px-4 py-2 bg-gray-200 rounded-md">Back</button>
+            <button id="confirm-split-btn" class="px-4 py-2 bg-indigo-600 text-white rounded-md">Confirm & Finish Move</button>
+        </div>
+    `);
+
+    const notification = modalContent.querySelector('#source-balance-notification');
+    const nextBtn = modalContent.querySelector('#confirm-split-btn');
+    const container = modalContent.querySelector('#source-day-tasks');
+    const inputs = container.querySelectorAll('.source-add-input');
+
+    const checkSourceBalance = () => {
+        const totalAdded = Array.from(inputs).reduce((sum, input) => sum + (parseFloat(input.value) || 0), 0);
+        const remaining = hoursToMove - totalAdded;
+        
+        inputs.forEach(input => {
+            input.disabled = (remaining <= 0 && (parseFloat(input.value) || 0) === 0);
+        });
+        container.querySelectorAll('.use-source-hours-btn').forEach(btn => {
+            btn.disabled = (remaining <= 0);
+        });
+
+        if (totalAdded > hoursToMove + 0.01) {
+             notification.className = 'mt-4 p-2 text-center font-bold rounded-md bg-red-100 text-red-700';
+             notification.textContent = `You cannot add more than the freed ${hoursToMove.toFixed(2)}h.`;
+             nextBtn.disabled = true;
+        } else {
+             notification.className = 'mt-4 p-2 text-center font-bold rounded-md bg-blue-100 text-blue-700';
+             notification.textContent = `${remaining.toFixed(2)}h remaining to be assigned.`;
+             nextBtn.disabled = false;
+        }
+    };
+    
+    container.addEventListener('input', e => {
+        if (e.target.classList.contains('source-add-input')) {
+            checkSourceBalance();
+        }
+    });
+    
+    container.addEventListener('click', e => {
+        if (e.target.classList.contains('use-source-hours-btn')) {
+            const index = e.target.dataset.index;
+            const input = inputs[index];
+            
+            const otherInputsTotal = Array.from(inputs).reduce((sum, currentInput, i) => {
+                return i === parseInt(index) ? sum : sum + (parseFloat(currentInput.value) || 0);
+            }, 0);
+            
+            const needed = hoursToMove - otherInputsTotal;
+            input.value = needed.toFixed(2);
+            checkSourceBalance();
+        }
+    });
+
+    checkSourceBalance();
+
+    nextBtn.onclick = () => {
+        const sourceAdditions = Array.from(inputs).map((input, index) => ({
+            scheduledId: otherTasksOnSource[index].id,
+            amount: parseFloat(input.value) || 0
+        })).filter(r => r.amount > 0);
+        
+        executeSplitMove(sourceScheduledId, targetDayId, hoursToMove, targetReductions, sourceAdditions);
+        hideModal();
+    };
+}
+
+function executeSplitMove(sourceScheduledId, targetDayId, hoursToMove, targetReductions, sourceAdditions) {
+    const sprint = appState.sprints[appState.activeSprintId];
+    const { dayId: sourceDayId, scheduledTask: sourceTaskInfo } = findScheduledTaskById(sourceScheduledId);
+
+    // --- Target Day Logic ---
+    // 1. Reduce hours from specified tasks
+    targetReductions.forEach(reduction => {
+        const task = findScheduledTaskById(reduction.scheduledId).scheduledTask;
+        if(task) task.hours -= reduction.amount;
+    });
+
+    // 2. Add the new split task part to the target day
+    if (!sprint.schedule[targetDayId]) sprint.schedule[targetDayId] = [];
+    const existingTaskOnTarget = sprint.schedule[targetDayId].find(t => t.taskId === sourceTaskInfo.taskId);
     if (existingTaskOnTarget) {
         existingTaskOnTarget.hours += hoursToMove;
     } else {
-        const newTask = { ...scheduledTask, id: `s_${targetDayId}_${scheduledTask.taskId}_${Math.random()}`, hours: hoursToMove };
-        sprint.schedule[targetDayId].push(newTask);
-    }
-
-    // Update source task
-    scheduledTask.hours -= hoursToMove;
-    if (scheduledTask.hours < 0.01) {
-        sprint.schedule[sourceDayId] = sprint.schedule[sourceDayId].filter(t => t.id !== scheduledId);
+        const newSplitTask = {
+            id: `s_${targetDayId}_${sourceTaskInfo.taskId}_${Math.random()}`,
+            taskId: sourceTaskInfo.taskId,
+            hours: hoursToMove,
+            subTasks: [] // Fresh subtasks for the new part
+        };
+        sprint.schedule[targetDayId].push(newSplitTask);
     }
     
+    // --- Source Day Logic ---
+    // 1. Reduce the hours from the original source task
+    sourceTaskInfo.hours -= hoursToMove;
+
+    // 2. Add the freed-up hours to other tasks on the source day
+    sourceAdditions.forEach(addition => {
+        const task = findScheduledTaskById(addition.scheduledId).scheduledTask;
+        if(task) task.hours += addition.amount;
+    });
+
+    // Clean up any tasks that now have zero hours
+    Object.keys(sprint.schedule).forEach(dayId => {
+        sprint.schedule[dayId] = sprint.schedule[dayId].filter(t => t.hours > 0.01);
+    });
+
     renderApp();
 }
-
 
 function swapTasks(sourceId, targetId) {
     const sprint = appState.sprints[appState.activeSprintId];
     const sourceInfo = findScheduledTaskById(sourceId);
     const targetInfo = findScheduledTaskById(targetId);
 
-    if (!sprint || !sourceInfo || !targetInfo) return;
+    if (!sprint || !sourceInfo.scheduledTask || !targetInfo.scheduledTask) return;
 
-    const { dayId: sourceDayId, scheduledTask: sourceTask } = sourceInfo;
-    const { dayId: targetDayId, scheduledTask: targetTask } = targetInfo;
+    const sourceTask = sourceInfo.scheduledTask;
+    const targetTask = targetInfo.scheduledTask;
 
-    const sourceIndex = sprint.schedule[sourceDayId].findIndex(t => t.id === sourceId);
-    const targetIndex = sprint.schedule[targetDayId].findIndex(t => t.id === targetId);
+    // Store the task-specific data (the "payload")
+    const sourcePayload = {
+        taskId: sourceTask.taskId,
+        subTasks: sourceTask.subTasks,
+        progressOverride: sourceTask.progressOverride,
+    };
+
+    const targetPayload = {
+        taskId: targetTask.taskId,
+        subTasks: targetTask.subTasks,
+        progressOverride: targetTask.progressOverride,
+    };
     
-    if (sourceIndex === -1 || targetIndex === -1) return;
+    // Swap the payloads, keeping the original hours and schedule ID
+    sourceTask.taskId = targetPayload.taskId;
+    sourceTask.subTasks = targetPayload.subTasks;
+    sourceTask.progressOverride = targetPayload.progressOverride;
 
-    sprint.schedule[sourceDayId][sourceIndex] = targetTask;
-    sprint.schedule[targetDayId][targetIndex] = sourceTask;
+    targetTask.taskId = sourcePayload.taskId;
+    targetTask.subTasks = sourcePayload.subTasks;
+    targetTask.progressOverride = sourcePayload.progressOverride;
     
     renderApp();
 }
@@ -762,6 +1050,174 @@ function handleChecklistClick(scheduledId) {
         }
     });
 }
+
+function handleEditTaskHours(scheduledId) {
+    const sprint = appState.sprints[appState.activeSprintId];
+    const { dayId, scheduledTask } = findScheduledTaskById(scheduledId);
+    if (!sprint || !scheduledTask) return;
+
+    const taskDef = sprint.tasks[scheduledTask.taskId];
+    const tasksOnDay = sprint.schedule[dayId] || [];
+    const otherTasksOnDay = tasksOnDay.filter(t => t.id !== scheduledId);
+
+    const modalContent = showModal(`
+        <h3 class="text-lg font-semibold text-gray-800 mb-2">Adjust Hours for ${taskDef.name} (${taskDef.ticketId})</h3>
+        <p class="text-sm text-gray-600 mb-4">Current Hours: <strong>${scheduledTask.hours.toFixed(2)}h</strong> on <strong>${dayMeta[dayId].name}</strong></p>
+        
+        <div class="mb-4">
+             <label class="block text-sm font-medium text-gray-700">New Hours</label>
+             <input id="new-hours-input" type="number" class="form-input mt-1" value="${scheduledTask.hours.toFixed(2)}" step="0.25" min="0.25">
+        </div>
+
+        <div id="rebalance-section" class="hidden">
+            <h4 class="text-md font-semibold mb-2">Re-balance Day</h4>
+            <div id="balance-info" class="p-2 text-center rounded-md mb-3"></div>
+            <div id="rebalance-tasks-list" class="space-y-2"></div>
+        </div>
+
+        <div class="flex justify-end gap-3 mt-6">
+            <button onclick="hideModal()" class="px-4 py-2 bg-gray-200 rounded-md">Cancel</button>
+            <button id="confirm-adjust-hours" class="px-4 py-2 bg-indigo-600 text-white rounded-md disabled:opacity-50">Confirm Changes</button>
+        </div>
+    `);
+
+    const newHoursInput = modalContent.querySelector('#new-hours-input');
+    const rebalanceSection = modalContent.querySelector('#rebalance-section');
+    const balanceInfo = modalContent.querySelector('#balance-info');
+    const rebalanceTasksList = modalContent.querySelector('#rebalance-tasks-list');
+    const confirmBtn = modalContent.querySelector('#confirm-adjust-hours');
+
+    const originalHours = scheduledTask.hours;
+
+    const updateRebalanceUI = () => {
+        const newHours = parseFloat(newHoursInput.value) || 0;
+        const diff = newHours - originalHours;
+
+        if (Math.abs(diff) < 0.01) {
+            rebalanceSection.classList.add('hidden');
+            confirmBtn.disabled = false;
+            return;
+        }
+
+        rebalanceSection.classList.remove('hidden');
+        
+        let tasksHtml = '';
+        if (otherTasksOnDay.length > 0) {
+            tasksHtml = otherTasksOnDay.map((task, index) => {
+                const otherTaskDef = sprint.tasks[task.taskId];
+                return `
+                <div class="grid grid-cols-12 gap-2 items-center">
+                    <span class="text-sm font-medium truncate col-span-4" title="${otherTaskDef.name} (${otherTaskDef.ticketId})">${otherTaskDef.name}</span>
+                    <span class="text-sm font-mono text-center col-span-2">${task.hours.toFixed(2)}h</span>
+                    <div class="col-span-3"><input type="number" class="form-input text-sm rebalance-input" data-index="${index}" value="0" step="0.25"></div>
+                    <div class="col-span-3"><button class="text-xs px-2 py-1 bg-gray-200 rounded hover:bg-gray-300 w-full use-rebalance-btn" data-index="${index}">Use</button></div>
+                </div>
+            `;
+            }).join('<hr class="my-2 -mx-2">');
+        } else {
+             tasksHtml = `<p class="text-center text-sm text-gray-500">No other tasks to re-balance with.</p>`;
+        }
+        rebalanceTasksList.innerHTML = tasksHtml;
+
+
+        if (diff > 0) { // Increased hours, need to reduce from others
+            balanceInfo.className = 'p-2 text-center rounded-md mb-3 bg-red-100 text-red-700';
+            balanceInfo.textContent = `Must reduce ${diff.toFixed(2)}h from other tasks.`;
+        } else { // Decreased hours, can add to others
+            balanceInfo.className = 'p-2 text-center rounded-md mb-3 bg-green-100 text-green-700';
+            balanceInfo.textContent = `Can re-assign ${(-diff).toFixed(2)}h to other tasks.`;
+        }
+        
+        checkBalance(diff);
+    };
+
+    const checkBalance = (diff) => {
+        const rebalanceInputs = rebalanceTasksList.querySelectorAll('.rebalance-input');
+        const totalRebalanced = Array.from(rebalanceInputs).reduce((sum, input) => sum + (parseFloat(input.value) || 0), 0);
+        
+        let needed = diff > 0 ? diff : -diff; // Absolute difference needed to balance
+        let balanceMessage = '';
+        let isBalanced = false;
+
+        if(otherTasksOnDay.length === 0 && diff > 0) {
+            balanceMessage = 'Cannot increase hours, no other tasks to take time from.';
+            isBalanced = false;
+        } else if (Math.abs(totalRebalanced - needed) < 0.01) {
+             balanceMessage = 'Day is balanced. Ready to save.';
+             isBalanced = true;
+        } else {
+            const remaining = needed - totalRebalanced;
+            balanceMessage = `Still need to ${diff > 0 ? 'reduce' : 'add'} ${remaining.toFixed(2)}h.`;
+            isBalanced = false;
+        }
+        
+        if (diff < 0 && totalRebalanced > needed + 0.01) {
+            balanceMessage = `Cannot assign more than the freed ${needed.toFixed(2)}h.`;
+            isBalanced = false;
+        }
+
+        let notification = modalContent.querySelector('#target-balance-notification')
+        if(!notification) {
+            notification = document.createElement('div');
+            notification.id = 'target-balance-notification';
+            rebalanceSection.appendChild(notification);
+        }
+
+        notification.textContent = balanceMessage;
+        notification.className = `mt-4 p-2 text-center font-bold rounded-md ${isBalanced ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`;
+        
+        confirmBtn.disabled = !isBalanced;
+    };
+    
+    rebalanceTasksList.addEventListener('click', e => {
+        const rebalanceInputs = rebalanceTasksList.querySelectorAll('.rebalance-input');
+        if (e.target.classList.contains('use-rebalance-btn')) {
+            const index = e.target.dataset.index;
+            const input = rebalanceInputs[index];
+            const diff = (parseFloat(newHoursInput.value) || 0) - originalHours;
+            const needed = diff > 0 ? diff : -diff;
+
+            const otherInputsTotal = Array.from(rebalanceInputs).reduce((sum, currentInput, i) => {
+                return i === parseInt(index) ? sum : sum + (parseFloat(currentInput.value) || 0);
+            }, 0);
+            
+            const remainingToBalance = needed - otherInputsTotal;
+            input.value = remainingToBalance.toFixed(2);
+            checkBalance(diff);
+        }
+    });
+
+    rebalanceTasksList.addEventListener('input', () => {
+        const diff = (parseFloat(newHoursInput.value) || 0) - originalHours;
+        checkBalance(diff);
+    });
+
+    newHoursInput.addEventListener('input', updateRebalanceUI);
+    updateRebalanceUI(); // Initial call
+    
+    confirmBtn.onclick = () => {
+        const newHours = parseFloat(newHoursInput.value) || 0;
+        const diff = newHours - originalHours;
+
+        scheduledTask.hours = newHours;
+
+        const rebalanceInputs = rebalanceTasksList.querySelectorAll('.rebalance-input');
+        Array.from(rebalanceInputs).forEach((input, index) => {
+            const amount = parseFloat(input.value) || 0;
+            if (amount > 0) {
+                if (diff > 0) { // We increased the main task, so decrease others
+                    otherTasksOnDay[index].hours -= amount;
+                } else { // We decreased the main task, so increase others
+                    otherTasksOnDay[index].hours += amount;
+                }
+            }
+        });
+
+        hideModal();
+        renderApp();
+    };
+}
+
 
 function handleEditDayCapacity() {
     const sprint = appState.sprints[appState.activeSprintId];
@@ -988,7 +1444,15 @@ function handleEditDayCapacity() {
 
         sprint.dailyLimits = newLimits;
         sprint.daysOff = newDaysOff;
-        sprint.schedule = distributeTasksLogically(sprint.tasks, sprint.dailyLimits, sprint.allocationConfig.scheduling); // Assume config is saved
+        
+        // BUG FIX: Provide a default config for older sprints without one.
+        const schedulingConfig = sprint.allocationConfig ? sprint.allocationConfig.scheduling : {
+            create: 'week1',
+            execute: 'week2',
+            verify: ['w2d3', 'w2d4', 'w2d5']
+        };
+
+        sprint.schedule = distributeTasksLogically(sprint.tasks, newLimits, schedulingConfig); 
         hideModal();
         renderApp();
     };
@@ -1345,9 +1809,23 @@ function createSprintFromParsedTasks(parsedTasks, allocationConfig, startDate) {
 function distributeTasksLogically(tasks, dailyLimits, scheduling) {
     const schedule = {};
     const dayIds = Object.keys(dayMeta);
-    const dayCapacities = { ...dailyLimits };
+    const dayCapacities = { ...dailyLimits }; // Start with full capacity
     dayIds.forEach(d => schedule[d] = []);
 
+    // Reserve capacity for Demo Prep first
+    const demoTask = Object.entries(tasks).find(([,t]) => t.type === 'demo');
+    if (demoTask) {
+        const allDaysUntilW2Thu = dayIds.slice(0, -1);
+        const workingDaysForDemo = allDaysUntilW2Thu.filter(dayId => dayCapacities[dayId] > 0);
+        if (workingDaysForDemo.length > 0) {
+            const hoursPerDay = DEMO_PREP_HOURS / workingDaysForDemo.length;
+            workingDaysForDemo.forEach(dayId => {
+                dayCapacities[dayId] -= hoursPerDay; // Decrement capacity *before* scheduling other tasks
+            });
+        }
+    }
+    
+    // Now schedule other tasks into the remaining capacity
     const week1Days = dayIds.filter(d => dayMeta[d].week === 1);
     const week2Days = dayIds.filter(d => dayMeta[d].week === 2);
 
@@ -1355,7 +1833,6 @@ function distributeTasksLogically(tasks, dailyLimits, scheduling) {
         create: Object.entries(tasks).filter(([, t]) => t.type === 'create').map(([id, t]) => ({ id, ...t, remaining: t.totalHours })),
         execute: Object.entries(tasks).filter(([, t]) => t.type === 'execute').map(([id, t]) => ({ id, ...t, remaining: t.totalHours })),
         verify: Object.entries(tasks).filter(([, t]) => t.type === 'verify').map(([id,t]) => ({id,...t, remaining: t.totalHours})),
-        demo: Object.entries(tasks).filter(([, t]) => t.type === 'demo').map(([id, t]) => ({ id, ...t, remaining: t.totalHours })),
     };
 
     const scheduleTask = (task, days) => {
@@ -1385,31 +1862,25 @@ function distributeTasksLogically(tasks, dailyLimits, scheduling) {
     taskQueues.execute.forEach(task => scheduleTask(task, executeDays));
     taskQueues.verify.forEach(task => scheduleTask(task, verifyDays));
     
-    const demoTask = taskQueues.demo[0];
-    if(demoTask) {
+    // Finally, add the Demo Prep tasks to the schedule
+    if (demoTask) {
+        const [demoTaskId] = demoTask;
         const allDaysUntilW2Thu = dayIds.slice(0, -1);
-        const workingDays = allDaysUntilW2Thu.filter(dayId => dailyLimits[dayId] > 0);
-        
-        if (workingDays.length > 0) {
-            const hoursPerDay = demoTask.totalHours / workingDays.length;
-            workingDays.forEach(dayId => {
-                const timeToLog = Math.min(dayCapacities[dayId] || 0, hoursPerDay);
-                if (timeToLog > 0.01) {
-                    schedule[dayId].push({ id: `s_${dayId}_${demoTask.id}_demo`, taskId: demoTask.id, hours: timeToLog, subTasks: [] });
-                    dayCapacities[dayId] -= timeToLog;
-                    demoTask.remaining -= timeToLog;
+        const workingDaysForDemo = allDaysUntilW2Thu.filter(dayId => dailyLimits[dayId] > 0);
+        if (workingDaysForDemo.length > 0) {
+            let demoHoursRemaining = DEMO_PREP_HOURS;
+            const hoursPerDay = DEMO_PREP_HOURS / workingDaysForDemo.length;
+            workingDaysForDemo.forEach(dayId => {
+                const hoursToLog = Math.min(demoHoursRemaining, hoursPerDay);
+                if (hoursToLog > 0.01) {
+                    schedule[dayId].push({ id: `s_${dayId}_${demoTaskId}_demo`, taskId: demoTaskId, hours: hoursToLog, subTasks: [] });
+                    demoHoursRemaining -= hoursToLog;
                 }
             });
         }
-        // If any demo time remains (e.g., due to rounding or full days), add it to the last possible day
-        if (demoTask.remaining > 0.01) {
-            const lastDay = 'w2d4';
-             const existingDemo = schedule[lastDay].find(t => t.taskId === demoTask.id);
-             if (existingDemo) existingDemo.hours += demoTask.remaining;
-             else schedule[lastDay].push({ id: `s_${lastDay}_${demoTask.id}_demo`, taskId: demoTask.id, hours: demoTask.remaining, subTasks: [] });
-        }
     }
 
+    // Consolidate any tasks that may have been split
     dayIds.forEach(dayId => {
         const tasksOnDay = schedule[dayId];
         const consolidated = {};
