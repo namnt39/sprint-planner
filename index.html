@@ -3,15 +3,19 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Advanced Interactive Sprint Planner</title>
+    <title>Dynamic Interactive Sprint Planner</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
         body { font-family: 'Inter', sans-serif; background-color: #f8fafc; }
         .task-card {
-            display: flex; flex-direction: column; padding: 8px 12px; border-radius: 8px;
+            display: flex; flex-direction: column; 
+            padding: 8px 12px; border-radius: 8px;
             margin-bottom: 8px; border: 1px solid; box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
             cursor: grab;
+        }
+        .task-card-text {
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
         }
         .task-card.dragging { opacity: 0.5; }
         .day-column.drag-over { background-color: #eef2ff; }
@@ -19,132 +23,93 @@
         .task-execute { background-color: #dbeafe; border-color: #bfdbfe; color: #1e40af; }
         .task-verify { background-color: #fee2e2; border-color: #fecaca; color: #991b1b; }
         .task-demo { background-color: #fef9c3; border-color: #fef08a; color: #854d0e; }
-        .action-btn { font-size: 12px; font-weight: 500; padding: 4px; border-radius: 4px; cursor: pointer; transition: background-color 0.2s; display: flex; align-items: center; justify-content: center; }
-        .task-create .action-btn { background-color: #86efac; color: #14532d; } .task-create .action-btn:hover { background-color: #4ade80; }
-        .task-execute .action-btn { background-color: #93c5fd; color: #1e3a8a; } .task-execute .action-btn:hover { background-color: #60a5fa; }
-        .task-verify .action-btn { background-color: #fca5a5; color: #7f1d1d; } .task-verify .action-btn:hover { background-color: #f87171; }
-        .task-demo .action-btn { background-color: #fde047; color: #713f12; } .task-demo .action-btn:hover { background-color: #facc15; }
         
-        .progress-bar-container { margin-top: 8px; position: relative; }
-        .progress-bar-bg { background-color: rgba(0,0,0,0.1); border-radius: 4px; height: 14px; overflow: hidden;}
-        .progress-bar-fg { height: 100%; border-radius: 4px; transition: width 0.3s; pointer-events: none; background-color: #6366f1; }
-        .progress-bar-text { position: absolute; top: 0; left: 0; right: 0; bottom: 0; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 600; color: white; text-shadow: 1px 1px 1px rgba(0,0,0,0.2); pointer-events: none; }
-        
+        .th-day-off-full { background-color: #fee2e2 !important; }
+        .th-day-off-half { background-color: #fef3c7 !important; }
+        .day-column.day-off-full { background-color: #fef2f2; }
+        .day-column.day-off-half { background-image: linear-gradient(180deg, #fefce8 50%, transparent 50%); }
+
         .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(0, 0, 0, 0.6); display: flex; align-items: center; justify-content: center; z-index: 50; transition: opacity 0.3s; }
-        .modal-content { background-color: white; padding: 24px; border-radius: 8px; max-width: 800px; width: 95%; max-height: 90vh; overflow-y: auto; transform: scale(0.95); transition: transform 0.3s;}
+        .modal-content { background-color: white; padding: 24px; border-radius: 8px; max-width: 800px; width: 95%; max-height: 90vh; overflow-y: auto; transform: scale(0.95); transition: transform 0.3s; position: relative;}
         .modal-overlay:not(.hidden) .modal-content { transform: scale(1); }
         .tab { padding: 8px 16px; cursor: pointer; border-bottom: 2px solid transparent; white-space: nowrap; }
         .tab.active { border-bottom-color: #4f46e5; color: #4f46e5; font-weight: 600; }
         .form-input { width: 100%; padding: 6px 8px; border: 1px solid #d1d5db; border-radius: 4px; font-size: 14px; }
-        .capacity-display.adjusted { background-color: #fef9c3 !important; border-color: #fef08a !important; }
-        .capacity-edit { cursor: pointer; transition: color 0.2s, background-color 0.2s; }
-        .day-off-full { background-color: #f3f4f6; }
-        .day-off-half { background-color: #f3f4f6; }
-        .day-off-label { font-size: 10px; font-weight: bold; color: #ef4444; text-transform: uppercase; }
         
-        .day-off-toggle {
-            position: relative;
-            width: 110px;
-            height: 32px;
-            border-radius: 9999px;
-            display: flex;
-            align-items: center;
-            border: 1px solid #d1d5db;
-            transition: background-color 0.3s, border-color 0.3s;
+        .day-column { border-left: 1px solid #e5e7eb; vertical-align: top; position: relative; }
+        .day-action-btn {
+            padding: 6px; border-radius: 6px; background-color: #f9fafb;
+            border: 1px solid #e5e7eb; transition: background-color 0.2s; cursor: pointer;
         }
-        .day-off-toggle .day-off-toggle-label {
-            position: absolute;
-            inset: 0;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 11px;
-            font-weight: 600;
-            color: white;
-            opacity: 0;
-            transition: opacity 0.2s;
-        }
-
-        .day-off-toggle[data-state="full"] { background-color: #ef4444; border-color: #dc2626; }
-        .day-off-toggle[data-state="full"] .day-off-toggle-label { opacity: 1; }
-        .day-off-toggle[data-state="half"] { background-color: #22c55e; border-color: #16a34a; }
-        .day-off-toggle[data-state="half"] .day-off-toggle-label { opacity: 1; }
-        .day-off-toggle[data-state="none"] { background-color: #e5e7eb; }
-
-        .day-off-toggle-thumb {
-            position: absolute;
-            width: 28px;
-            height: 28px;
-            background-color: white;
-            border-radius: 9999px;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-            transition: transform 0.2s ease-in-out;
-            top: 1px;
-        }
-        .day-off-toggle[data-state="full"] .day-off-toggle-thumb { transform: translateX(3px); }
-        .day-off-toggle[data-state="none"] .day-off-toggle-thumb { transform: translateX(40px); }
-        .day-off-toggle[data-state="half"] .day-off-toggle-thumb { transform: translateX(77px); }
-
-        .day-off-toggle-section {
-            flex: 1;
-            height: 100%;
-            cursor: pointer;
-            z-index: 10;
-        }
+        .day-action-btn:hover { background-color: #f3f4f6; }
+        .day-action-btn:disabled { cursor: not-allowed; opacity: 0.5; }
         
-        [title]:hover::after {
-            content: attr(title);
-            position: absolute;
-            background-color: #1f2937;
-            color: #fff;
-            padding: 4px 8px;
-            border-radius: 4px;
-            font-size: 12px;
-            white-space: nowrap;
-            z-index: 1000;
-            transform: translate(10px, -30px);
-            pointer-events: none;
+        .capacity-bar { height: 6px; background-color: #e5e7eb; border-radius: 3px; overflow: hidden; }
+        .capacity-bar-inner { height: 100%; border-radius: 3px; transition: width 0.3s; }
+        
+        .capacity-input {
+            border: 1px solid transparent; text-align: center; font-weight: 500;
+            padding: 2px 4px; border-radius: 4px; transition: all 0.2s;
+            background-color: #f9fafb;
         }
-        .btn-gradient {
-            background-image: linear-gradient(to right, #4f46e5, #7c3aed);
-            transition: all 0.3s ease;
-            box-shadow: 0 4px 15px 0 rgba(124, 58, 237, 0.35);
+        .capacity-input:hover, .capacity-input:focus { border-color: #a5b4fc; background-color: #eef2ff; }
+        .capacity-input.changed { background-color: #dcfce7 !important; border-color: #34d399; }
+
+        /* New Status Toggle UI */
+        .status-toggle {
+            position: relative; width: 100px; height: 28px; border-radius: 14px; display: flex;
+            align-items: center; cursor: pointer;
+            background-color: #e5e7eb;
+            box-shadow: inset 0 1px 2px 0 rgb(0 0 0 / 0.05);
         }
-        .btn-gradient:hover {
-             background-image: linear-gradient(to right, #7c3aed, #4f46e5);
-             box-shadow: 0 6px 20px 0 rgba(124, 58, 237, 0.45);
+        .status-toggle-thumb {
+            position: absolute; width: calc(33.33% - 2px); height: 24px;
+            border-radius: 12px; box-shadow: 0 1px 3px rgb(0 0 0 / 0.2);
+            transition: transform 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+            top: 2px; left: 2px; z-index: 10;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 10px; font-weight: 700;
         }
+        .status-toggle-placeholder {
+            flex: 1; text-align: center; font-size: 10px; color: #6b7280; font-weight: 500;
+        }
+        .status-toggle[data-state="full"] .status-toggle-thumb { transform: translateX(0%); background-color: #f87171; color: white;}
+        .status-toggle[data-state="none"] .status-toggle-thumb { transform: translateX(100%); background-color: #34d399; color: white;}
+        .status-toggle[data-state="half"] .status-toggle-thumb { transform: translateX(200%); background-color: #fbbf24; color: white;}
+
     </style>
 </head>
 <body class="p-4 sm:p-6 md:p-8">
 
-    <div class="max-w-7xl mx-auto">
+    <div class="max-w-screen-2xl mx-auto">
         <div id="tabs-container" class="flex border-b border-gray-200 mb-4 overflow-x-auto"></div>
-        <div id="sprint-content">
-            <!-- Sprint content will be rendered here -->
-        </div>
+        <div id="sprint-content"></div>
     </div>
     
-    <div id="generic-modal" class="modal-overlay hidden opacity-0"><div class="modal-content"></div></div>
+    <div id="generic-modal" class="modal-overlay hidden opacity-0"></div>
     
 <script>
 // --- GLOBAL STATE & CONSTANTS ---
-const APP_DATA_KEY = 'multiSprintPlannerState_v51_final_swap';
-let appState = { activeSprintId: null, sprints: {} };
+var APP_DATA_KEY = 'multiSprintPlannerState_v24_final';
+let appState = { 
+    activeSprintId: null, 
+    sprints: {},
+    uiState: {
+        lastAddTaskTab: 'Create TCs',
+        lastSprintNumber: 0
+    }
+};
 
-const dayMeta = {
+var dayMeta = {
     w1d1: { week: 1, name: 'Monday' }, w1d2: { week: 1, name: 'Tuesday' }, w1d3: { week: 1, name: 'Wednesday' },
     w1d4: { week: 1, name: 'Thursday' }, w1d5: { week: 1, name: 'Friday' },
     w2d1: { week: 2, name: 'Monday' }, w2d2: { week: 2, name: 'Tuesday' }, w2d3: { week: 2, name: 'Wednesday' },
     w2d4: { week: 2, name: 'Thursday' }, w2d5: { week: 2, name: 'Friday' }
 };
-const dayOffsets = {
+var dayOffsets = {
     w1d1: 0, w1d2: 1, w1d3: 2, w1d4: 3, w1d5: 4,
     w2d1: 7, w2d2: 8, w2d3: 9, w2d4: 10, w2d5: 11
 };
-const MAX_DAY_CAPACITY = 6.75;
-const MIN_DAY_CAPACITY = 0.25;
-const DEMO_PREP_HOURS = 16.0;
 
 // --- STATE MANAGEMENT ---
 function saveState() {
@@ -160,37 +125,32 @@ function loadState() {
     try {
         const savedState = localStorage.getItem(APP_DATA_KEY);
         if (savedState) {
-            appState = JSON.parse(savedState);
-            if (!appState || typeof appState.sprints !== 'object' || appState.sprints === null) {
-                throw new Error("Invalid state structure.");
-            }
-            Object.keys(appState.sprints).forEach(sprintId => {
-                const sprint = appState.sprints[sprintId];
-                if (!sprint || typeof sprint.sprintName === 'undefined' || typeof sprint.schedule === 'undefined') {
-                    delete appState.sprints[sprintId];
-                }
-                // Retroactively add missing properties
-                if (sprint) {
-                    if (!sprint.defaultDailyLimits) {
-                        sprint.defaultDailyLimits = createNewSprintState('').dailyLimits;
-                    }
-                    if (!sprint.daysOff) {
-                         sprint.daysOff = Object.keys(dayMeta).reduce((acc, dayId) => ({...acc, [dayId]: 'none'}), {});
-                    }
-                }
+            const loaded = JSON.parse(savedState);
+            appState = { ...appState, ...loaded };
+            // Ensure uiState exists with default values
+            appState.uiState = appState.uiState || {};
+            appState.uiState.lastAddTaskTab = appState.uiState.lastAddTaskTab || 'Create TCs';
+            appState.uiState.lastSprintNumber = appState.uiState.lastSprintNumber || 0;
+
+            Object.values(appState.sprints).forEach(sprint => {
+                if (!sprint.exceededLogs) sprint.exceededLogs = [];
+                if (!sprint.schedule) sprint.schedule = {};
+                if (!sprint.daysOff) sprint.daysOff = Object.keys(dayMeta).reduce((acc, dayId) => ({...acc, [dayId]: 'none'}), {});
+                if (!sprint.defaultDailyLimits) sprint.defaultDailyLimits = createNewSprintState('').dailyLimits;
             });
         }
         if (!appState.sprints || Object.keys(appState.sprints).length === 0) {
              const defaultSprintId = `sprint-${Date.now()}`;
-            appState.sprints = { [defaultSprintId]: createDefaultSampleSprintState("Sample Sprint") };
+            appState.sprints = { [defaultSprintId]: createNewSprintState("Sample Sprint") };
             appState.activeSprintId = defaultSprintId;
         }
     } catch (e) {
-        console.error("Failed to parse or sanitize saved state. Resetting to default.", e);
+        console.error("Failed to load or parse saved state. Resetting to default.", e);
         const defaultSprintId = `sprint-${Date.now()}`;
         appState = {
             activeSprintId: defaultSprintId,
-            sprints: { [defaultSprintId]: createDefaultSampleSprintState("Sample Sprint") }
+            sprints: { [defaultSprintId]: createNewSprintState("Sample Sprint") },
+            uiState: { lastAddTaskTab: 'Create TCs', lastSprintNumber: 0 }
         };
     }
 }
@@ -198,17 +158,12 @@ function loadState() {
 // --- CORE RENDERING LOGIC ---
 function renderApp() {
     if (!appState.activeSprintId || !appState.sprints[appState.activeSprintId]) {
-        const firstValidSprintId = Object.keys(appState.sprints)[0];
-        if (firstValidSprintId) {
-            appState.activeSprintId = firstValidSprintId;
-        } else {
-            const newId = `sprint-${Date.now()}`;
-            appState.sprints = { [newId]: createDefaultSampleSprintState("Sample Sprint") };
-            appState.activeSprintId = newId;
-        }
+        appState.activeSprintId = Object.keys(appState.sprints)[0] || null;
     }
     renderTabs();
-    renderSprintContent(appState.activeSprintId);
+    if(appState.activeSprintId) {
+        renderSprintContent(appState.activeSprintId);
+    }
     saveState();
 }
 
@@ -217,106 +172,219 @@ function renderTabs() {
     tabsContainer.innerHTML = '';
     Object.keys(appState.sprints).forEach(sprintId => {
         const sprint = appState.sprints[sprintId];
-        if (sprint) {
-            const tab = document.createElement('div');
-            tab.className = `tab ${sprintId === appState.activeSprintId ? 'active' : ''}`;
-            tab.textContent = sprint.sprintName;
-            tab.onclick = () => switchTab(sprintId);
-            tabsContainer.appendChild(tab);
-        }
+        const tab = document.createElement('div');
+        tab.className = `tab ${sprintId === appState.activeSprintId ? 'active' : ''}`;
+        tab.textContent = sprint.sprintName;
+        tab.onclick = () => switchTab(sprintId);
+        tabsContainer.appendChild(tab);
     });
+
     const addTabButton = document.createElement('button');
     addTabButton.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1.5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clip-rule="evenodd" /></svg> Add Sprint`;
     addTabButton.className = 'ml-4 my-1 px-3 py-1.5 text-sm bg-indigo-100 text-indigo-700 rounded-md hover:bg-indigo-200 flex items-center';
     addTabButton.onclick = showNewSprintDialog;
     tabsContainer.appendChild(addTabButton);
 
-    const pasteCreateButton = document.createElement('button');
-    pasteCreateButton.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1.5" viewBox="0 0 20 20" fill="currentColor"><path d="M8 3a1 1 0 011-1h2a1 1 0 110 2H9a1 1 0 01-1-1z" /><path d="M6 3a2 2 0 00-2 2v11a2 2 0 002 2h8a2 2 0 002-2V5a2 2 0 00-2-2H6z" /></svg> Paste & Create`;
-    pasteCreateButton.className = 'ml-2 my-1 px-3 py-1.5 text-sm bg-purple-100 text-purple-700 rounded-md hover:bg-purple-200 flex items-center';
-    pasteCreateButton.onclick = handlePasteAndCreateClick;
-    tabsContainer.appendChild(pasteCreateButton);
+    const deleteSprintButton = document.createElement('button');
+    deleteSprintButton.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1.5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm4 0a1 1 0 012 0v6a1 1 0 11-2 0V8z" clip-rule="evenodd" /></svg> Delete Sprint`;
+    deleteSprintButton.className = 'ml-2 my-1 px-3 py-1.5 text-sm bg-red-100 text-red-700 rounded-md hover:bg-red-200 flex items-center';
+    deleteSprintButton.onclick = handleDeleteSprint;
+    tabsContainer.appendChild(deleteSprintButton);
 }
 
 function renderSprintContent(sprintId) {
     const sprint = appState.sprints[sprintId];
     if (!sprint) return;
 
-    let setDateButton = '';
-    if (!sprint.startDate) {
-        setDateButton = `<button id="set-start-date-btn" class="px-3 py-1.5 text-sm font-medium bg-yellow-500 text-white rounded-md shadow-sm hover:bg-yellow-600 btn-gradient">Set Start Date</button>`;
-    }
-
     const container = document.getElementById('sprint-content');
     container.innerHTML = `
         <div class="flex flex-wrap items-center justify-between gap-4 mb-4">
             <input type="text" value="${sprint.sprintName}" oninput="updateSprintName(this.value)" class="text-2xl font-bold text-gray-800 bg-transparent border-b-2 border-transparent focus:border-indigo-500 outline-none w-auto max-w-full">
-            <div class="flex flex-wrap gap-2">
-                ${setDateButton}
-            </div>
         </div>
         <div id="sprint-dashboard" class="mb-6"></div>
-        <div class="mb-10"><h2 class="text-xl font-semibold text-gray-700 mb-4">Week 1</h2><div id="week-1-planner" class="overflow-x-auto bg-white rounded-lg shadow"></div></div>
-        <div><h2 class="text-xl font-semibold text-gray-700 mb-4">Week 2</h2><div id="week-2-planner" class="overflow-x-auto bg-white rounded-lg shadow"></div></div>`;
+        <div class="mb-10" data-week="1"></div>
+        <div data-week="2"></div>`;
     
-    addSprintContentEventListeners();
+    renderWeek(sprint, 1);
+    renderWeek(sprint, 2);
     renderDashboard(sprint);
-    renderPlanner(sprint);
+    addSprintContentEventListeners();
+}
+
+function renderWeek(sprint, weekNumber) {
+    const container = document.querySelector(`[data-week="${weekNumber}"]`);
+    if(!container) return;
+
+    const hasExceededLogs = (sprint.exceededLogs || []).some(log => dayMeta[log.dayLogged]?.week === weekNumber);
+
+    let weekTitleHtml = `<h2 class="text-xl font-semibold text-gray-700">Week ${weekNumber}</h2>`;
+
+    let weekButtons = '';
+    if (!sprint.startDate && weekNumber === 1) {
+        weekButtons += `<button data-action="set-start-date" class="px-3 py-1 text-sm bg-blue-100 text-blue-800 rounded-md hover:bg-blue-200 flex items-center">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-2" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M6 2a1 1 0 00-1 1v1H4a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2h-1V3a1 1 0 10-2 0v1H7V3a1 1 0 00-1-1zm0 5a1 1 0 000 2h8a1 1 0 100-2H6z" clip-rule="evenodd" /></svg>
+            Set Start Date
+        </button>`;
+    }
+    if (hasExceededLogs) {
+        weekButtons += `<button data-action="show-exceeded" data-week="${weekNumber}" class="px-3 py-1 text-sm bg-yellow-100 text-yellow-800 rounded-md hover:bg-yellow-200 flex items-center">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-2" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.21 3.03-1.742 3.03H4.42c-1.532 0-2.492-1.696-1.742-3.03l5.58-9.92zM10 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd" /></svg>
+            Exceeded Logs
+        </button>`;
+    }
+    weekButtons += `<button data-action="dist-demo-prep" class="px-3 py-1 text-sm bg-purple-100 text-purple-800 rounded-md hover:bg-purple-200 flex items-center">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-2" viewBox="0 0 20 20" fill="currentColor"><path d="M6 10a2 2 0 11-4 0 2 2 0 014 0zM12 10a2 2 0 11-4 0 2 2 0 014 0zM16 12a2 2 0 100-4 2 2 0 000 4z" /></svg>
+        Demo Prep
+    </button>`;
+
+    container.innerHTML = `
+        <div class="flex items-center justify-between mb-4">
+            ${weekTitleHtml}
+            <div class="flex items-center gap-2">${weekButtons}</div>
+        </div>
+        <div class="overflow-x-auto bg-white rounded-lg shadow">${generateWeekHtml(Object.keys(dayMeta).filter(d => dayMeta[d].week === weekNumber), sprint)}</div>
+    `;
+}
+
+
+function generateWeekHtml(days, sprint) {
+    const headHtml = days.map(dayId => {
+        const scheduledHours = (sprint.schedule[dayId] || []).reduce((sum, t) => sum + t.hours, 0);
+        const capacity = sprint.dailyLimits[dayId];
+        const dayOffStatus = sprint.daysOff[dayId] || 'none';
+        
+        const percentage = capacity > 0 ? (scheduledHours / capacity) * 100 : 0;
+        let barColor = 'bg-blue-500';
+        if (percentage > 100) barColor = 'bg-red-500';
+        else if (percentage > 85) barColor = 'bg-yellow-500';
+
+        let dateDisplay = sprint.startDate ? `, ${getDateForDayId(sprint.startDate, dayId).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : '';
+        
+        const dayHeaderClass = dayOffStatus === 'full' ? 'th-day-off-full' : (dayOffStatus === 'half' ? 'th-day-off-half' : '');
+        
+        const statusText = dayOffStatus === 'full' ? 'OFF' : dayOffStatus === 'half' ? 'HALF' : 'ON';
+
+        return `<th class="p-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider w-1/5 ${dayHeaderClass}" data-day-header-id="${dayId}">
+            <div class="flex justify-between items-center">
+                 <span class="font-semibold text-gray-700 normal-case whitespace-nowrap">${dayMeta[dayId].name}${dateDisplay}</span>
+                 <div class="status-toggle" data-day-id="${dayId}" data-state="${dayOffStatus}">
+                    <div class="status-toggle-placeholder" data-value="full" style="opacity: ${dayOffStatus === 'full' ? '0' : '1'}">OFF</div>
+                    <div class="status-toggle-placeholder" data-value="none" style="opacity: ${dayOffStatus === 'none' ? '0' : '1'}">ON</div>
+                    <div class="status-toggle-placeholder" data-value="half" style="opacity: ${dayOffStatus === 'half' ? '0' : '1'}">HALF</div>
+                    <div class="status-toggle-thumb">
+                        <span>${statusText}</span>
+                    </div>
+                </div>
+            </div>
+            <div class="capacity-bar my-2">
+                <div class="capacity-bar-inner ${barColor}" style="width: ${Math.min(100, percentage)}%;"></div>
+            </div>
+            <div class="flex justify-center items-center text-base p-1 border border-gray-200 rounded-md">
+                <span class="font-semibold ${percentage > 100 ? 'text-red-600' : 'text-gray-800'}">${scheduledHours.toFixed(2)}h</span>
+                <span class="text-gray-400 mx-2">/</span>
+                <input type="number" class="capacity-input w-16" data-day-id="${dayId}" value="${capacity.toFixed(2)}" step="0.25" min="0">
+            </div>
+        </th>`;
+    }).join('');
+    
+    let bodyHtml = '<tr>' + days.map(dayId => {
+        const tasksOnDay = sprint.schedule[dayId] || [];
+        const dayOffStatus = sprint.daysOff[dayId] || 'none';
+        const taskCards = tasksOnDay.map(st => {
+            const ti = sprint.tasks[st.taskId];
+            if (!ti) return '';
+            const ticketIdSimple = ti.ticketId.replace(/^NCOP-/, '');
+            const cardText = `${ticketIdSimple} - ${ti.name}`;
+            return `
+                <div class="task-card ${'task-' + ti.type}" data-scheduled-id="${st.id}" draggable="true" title="${ti.ticketId} - ${ti.name} - ${st.hours.toFixed(2)}h">
+                    <div class="w-full">
+                        <div class="task-card-text text-sm font-medium">${cardText}</div>
+                        <div class="flex justify-between items-center mt-2 pt-1 border-t border-black border-opacity-10">
+                            <span class="text-sm font-bold">${st.hours.toFixed(2)}h</span>
+                            <div class="flex items-center">
+                                <button class="day-action-btn" data-action="edit-single-task" data-scheduled-id="${st.id}" title="Edit Hours">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-blue-600" viewBox="0 0 20 20" fill="currentColor"><path d="M17.414 2.586a2 2 0 00-2.828 0L7 10.172V13h2.828l7.586-7.586a2 2 0 000-2.828z" /><path fill-rule="evenodd" d="M2 6a2 2 0 012-2h4a1 1 0 010 2H4v10h10v-4a1 1 0 112 0v4a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" clip-rule="evenodd" /></svg>
+                                </button>
+                                <button class="day-action-btn" data-action="delete-single-task" data-scheduled-id="${st.id}" title="Delete Task">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-red-600" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm4 0a1 1 0 012 0v6a1 1 0 11-2 0V8z" clip-rule="evenodd" /></svg>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>`;
+        }).join('');
+
+        const dayColumnClass = dayOffStatus === 'full' ? 'day-off-full' : (dayOffStatus === 'half' ? 'day-off-half' : '');
+        
+        return `<td class="p-2 align-top day-column ${dayColumnClass}" data-day-id="${dayId}">
+            <div class="min-h-[100px]">${taskCards}</div>
+            <div class="flex justify-center gap-2 mt-1">
+                <button class="day-action-btn" data-action="add-day-task" data-day-id="${dayId}" title="Add Task to Day" ${dayOffStatus === 'full' ? 'disabled' : ''}>
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-green-600" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-11a1 1 0 10-2 0v2H7a1 1 0 100 2h2v2a1 1 0 102 0v-2h2a1 1 0 100-2h-2V7z" clip-rule="evenodd" /></svg>
+                </button>
+                <button class="day-action-btn" data-action="delete-day-tasks" data-day-id="${dayId}" title="Delete All Tasks" ${tasksOnDay.length === 0 ? 'disabled' : ''}>
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-red-600" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd" /></svg>
+                </button>
+            </div>
+        </td>`;
+    }).join('') + '</tr>';
+
+    return `<table class="w-full min-w-[1200px] border-collapse table-fixed"><thead><tr>${headHtml}</tr></thead><tbody class="divide-y divide-gray-200">${bodyHtml}</tbody></table>`;
 }
 
 function renderDashboard(sprint) {
     const dashboard = document.getElementById('sprint-dashboard');
-    const totalHours = Object.values(sprint.dailyLimits).reduce((a, b) => a + b, 0);
-    const scheduledHours = Object.values(sprint.schedule).flat().reduce((sum, task) => sum + task.hours, 0);
-    const ticketHours = scheduledHours - DEMO_PREP_HOURS;
     const { storySummary, bugSummary } = getTaskSummaries(sprint);
+    const { totalScheduled } = getAvailableTasks(sprint);
 
-    let storyHtml = '';
-    for (const ticketId in storySummary) {
-        const story = storySummary[ticketId];
-        const storyLink = story.link ? `href="${story.link}" target="_blank"` : '';
-        storyHtml += `
+    let storyHtml = Object.entries(storySummary).map(([ticketId, story]) => {
+        return `
             <div class="border rounded-md p-3 bg-green-50 border-green-200">
-                <div class="flex justify-between items-baseline">
-                    <a ${storyLink} class="font-medium text-gray-800 hover:underline">${ticketId}</a>
-                </div>
+                <div class="flex justify-between items-baseline"><a href="https://oneline.atlassian.net/browse/${ticketId}" target="_blank" class="font-medium text-gray-800 hover:underline">${ticketId}</a></div>
                 <p class="text-xs text-gray-600 mt-1 mb-2">${story.title || 'Story'}</p>
-                <ul class="text-xs space-y-1 border-t border-green-200 pt-2">
-                    ${Object.entries(story.subTasks).map(([name, hours]) => `
-                        <li class="flex justify-between"><span>${name}</span><span class="font-mono">${hours.toFixed(2)}h</span></li>
-                    `).join('')}
-                </ul>
+                <div class="text-xs space-y-1 border-t border-green-200 pt-2">
+                    <div class="grid grid-cols-3 font-bold text-gray-500"><span>Sub-task</span><span class="text-right">Est.</span><span class="text-right">Logged</span></div>
+                    ${Object.entries(story.subTasks).map(([subTaskId, hours]) => {
+                        const logged = totalScheduled[subTaskId] || 0;
+                        const logColor = logged > hours ? 'text-red-600 font-bold' : 'text-gray-700';
+                        return `
+                        <div class="grid grid-cols-3">
+                            <span>${sprint.tasks[subTaskId].name}</span>
+                            <span class="font-mono text-right">${hours.toFixed(2)}h</span>
+                            <span class="font-mono text-right ${logColor}">${logged.toFixed(2)}h</span>
+                        </div>`
+                    }).join('')}
+                </div>
             </div>`;
-    }
+    }).join('');
 
     let bugHtml = '';
-    if (bugSummary.length > 0) {
+    if (Object.keys(bugSummary).length > 0) {
         bugHtml = `
         <div class="border rounded-md p-3 bg-red-50 border-red-200">
             <strong class="font-medium text-red-800 mb-2 block">Bugs</strong>
-            <ul class="text-xs space-y-1 border-t border-red-200 pt-2">
-                ${bugSummary.map(bug => `
-                    <li class="flex justify-between">
-                        <span>${bug.link ? `<a href="${bug.link}" target="_blank" class="hover:underline">${bug.ticketId}</a>` : bug.ticketId}</span>
-                        <span class="font-mono">${bug.totalHours.toFixed(2)}h</span>
-                    </li>
-                `).join('')}
-            </ul>
+            <div class="text-xs space-y-1 border-t border-red-200 pt-2">
+                <div class="grid grid-cols-3 font-bold text-gray-500"><span>Ticket</span><span class="text-right">Est.</span><span class="text-right">Logged</span></div>
+                ${Object.entries(bugSummary).map(([bugTaskId, bug]) => {
+                     const logged = totalScheduled[bugTaskId] || 0;
+                     const logColor = logged > bug.totalHours ? 'text-red-600 font-bold' : 'text-gray-700';
+                     return `
+                    <div class="grid grid-cols-3">
+                         <a href="https://oneline.atlassian.net/browse/${bug.ticketId}" target="_blank" class="hover:underline truncate">${bug.ticketId.replace(/^NCOP-/, '')}</a>
+                         <span class="font-mono text-right">${bug.totalHours.toFixed(2)}h</span>
+                         <span class="font-mono text-right ${logColor}">${logged.toFixed(2)}h</span>
+                    </div>`
+                }).join('')}
+            </div>
         </div>`;
     }
     
     dashboard.innerHTML = `
-    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-        <div class="bg-white p-4 rounded-lg shadow"><p class="text-sm text-gray-500">Total Capacity</p><p class="text-2xl font-bold text-gray-800">${totalHours.toFixed(2)} h</p></div>
-        <div class="bg-white p-4 rounded-lg shadow"><p class="text-sm text-gray-500">Ticket Time</p><p class="text-2xl font-bold text-gray-800">${ticketHours.toFixed(2)} h</p></div>
-        <div class="bg-white p-4 rounded-lg shadow"><p class="text-sm text-gray-500">Demo Prep</p><p class="text-2xl font-bold text-gray-800">${DEMO_PREP_HOURS.toFixed(2)} h</p></div>
-        <div class="bg-white p-4 rounded-lg shadow"><p class="text-sm text-gray-500">Overall Progress</p><p class="text-2xl font-bold text-gray-800">${calculateOverallProgress(sprint)}%</p></div>
-    </div>
-    <details class="bg-white rounded-lg shadow p-4" open>
+    <details class="bg-white rounded-lg shadow p-4">
         <summary class="font-semibold cursor-pointer text-lg">Estimate Summary</summary>
         <div class="mt-4 border-t pt-4">
-            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 max-h-64 overflow-y-auto pr-2">
-                ${storyHtml}
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 max-h-64 overflow-y-auto pr-2">
+                ${storyHtml || '<p class="text-sm text-gray-500">No stories found.</p>'}
                 ${bugHtml || ''}
             </div>
         </div>
@@ -324,142 +392,68 @@ function renderDashboard(sprint) {
     `;
 }
 
-
-function renderPlanner(sprint) {
-    const week1Container = document.querySelector('#sprint-content #week-1-planner');
-    const week2Container = document.querySelector('#sprint-content #week-2-planner');
-    if (!week1Container || !week2Container) return;
-    week1Container.innerHTML = generateWeekHtml(Object.keys(dayMeta).filter(d => dayMeta[d].week === 1), sprint);
-    week2Container.innerHTML = generateWeekHtml(Object.keys(dayMeta).filter(d => dayMeta[d].week === 2), sprint);
-}
-
-function generateWeekHtml(days, sprint) {
-    const headHtml = days.map(dayId => {
-        const scheduledHours = (sprint.schedule[dayId] || []).reduce((sum, t) => sum + t.hours, 0);
-        const capacity = sprint.dailyLimits[dayId];
-        const defaultCapacity = sprint.defaultDailyLimits[dayId];
-        const dayOffStatus = sprint.daysOff[dayId];
-        const overUnderClass = scheduledHours > capacity ? 'text-red-600 font-bold' : 'text-gray-800';
-        const isAdjusted = Math.abs(capacity - defaultCapacity) > 0.01 && dayOffStatus === 'none';
-        
-        let dayOffLabel = '';
-        if (dayOffStatus === 'full') dayOffLabel = `<span class="day-off-label block">FULL DAY OFF</span>`;
-        if (dayOffStatus === 'half') dayOffLabel = `<span class="day-off-label block">HALF DAY OFF</span>`;
-
-        let dateDisplay = '';
-        if (sprint.startDate) {
-            const date = getDateForDayId(sprint.startDate, dayId);
-            if (date) {
-                 const dayStr = date.toLocaleDateString('en-GB', { weekday: 'short' });
-                 const dateStr = date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
-                 
-                 let suffix = '';
-                 if (dayId === 'w1d1') suffix = ': Start';
-                 if (dayId === 'w2d5') suffix = ': End';
-
-                dateDisplay = `<span class="block font-normal normal-case text-gray-500 text-xs">${dayStr} ${dateStr}${suffix}</span>`;
+function getTaskSummaries(sprint) {
+    const storySummary = {}; // Key: ticketId
+    const bugSummary = {}; // Key: taskId
+    Object.entries(sprint.tasks).forEach(([taskId, task]) => {
+        if (!task.ticketId || task.ticketId === 'N/A' || task.ticketId === 'DEMO_PREP') return;
+        const isBug = task.type === 'verify' && task.name !== 'C/V Bugs';
+        if (isBug) {
+            bugSummary[taskId] = { ticketId: task.ticketId, totalHours: task.totalHours || 0, title: task.title, link: task.link };
+        } else if (task.type === 'create' || task.type === 'execute' || task.name === 'C/V Bugs') {
+             if (!storySummary[task.ticketId]) {
+                storySummary[task.ticketId] = { title: task.title, link: task.link, subTasks: {} };
             }
+            storySummary[task.ticketId].subTasks[taskId] = task.totalHours || 0;
         }
-
-        return `<th class="p-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider ${dayOffStatus !== 'none' ? 'day-off-full' : ''}">
-            <div class="font-semibold text-gray-700 normal-case">${dayMeta[dayId].name}</div>
-            ${dateDisplay}
-            ${dayOffLabel}
-             <div class="mt-1 text-xs font-normal normal-case">
-                <div class="capacity-display border inline-flex items-baseline gap-1.5 px-2 py-1 rounded-md bg-gray-50 border-gray-200 ${isAdjusted ? 'adjusted' : ''}">
-                    <span class="${overUnderClass}">${scheduledHours.toFixed(2)}h</span>
-                    <span class="text-gray-300">/</span>
-                    <span class="capacity-edit" data-day-id="${dayId}">${capacity.toFixed(2)}h</span>
-                    <button class="ml-1 capacity-edit" data-day-id="${dayId}" title="Adjust Capacity & Days Off">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-gray-400 hover:text-indigo-600" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.414-1.415L11 9.586V6z" clip-rule="evenodd" /></svg>
-                    </button>
-                </div>
-            </div>
-        </th>`;
-    }).join('');
-    
-    let bodyHtml = '<tr>' + days.map(dayId => {
-        const dayOffStatus = sprint.daysOff[dayId];
-        const tasksOnDay = sprint.schedule[dayId] || [];
-        const unloggedTotal = tasksOnDay.reduce((sum, t) => {
-            const logged = (t.subTasks || []).reduce((acc, sub) => acc + (sub.loggedHours || 0), 0);
-            return sum + (t.hours - logged);
-        }, 0);
-        const remainingClass = unloggedTotal < 0 ? 'text-red-500' : 'text-gray-500';
-
-        const taskCards = tasksOnDay
-            .sort((a, b) => (sprint.tasks[a.taskId]?.type === 'demo' ? 1 : 0) - (sprint.tasks[b.taskId]?.type === 'demo' ? 1 : 0))
-            .map(st => {
-            const ti = sprint.tasks[st.taskId];
-            if (!ti) return '';
-            const progress = calculateTaskProgress(st);
-            const doneLabel = progress === 100 ? 'DONE' : `${progress}%`;
-            const loggedHours = (st.subTasks || []).reduce((acc, sub) => acc + (sub.loggedHours || 0), 0);
-            
-            const ticketIdNumber = ti.ticketId.replace('NCOP-', '');
-            const ticketDisplay = ti.link ? 
-                `<a href="${ti.link}" target="_blank" class="font-bold text-sm hover:underline" title="${ti.ticketId}">${ticketIdNumber}</a>` : 
-                `<span class="font-bold text-sm" title="${ti.ticketId}">${ticketIdNumber}</span>`;
-
-            return `
-                <div class="task-card ${'task-' + ti.type}" data-scheduled-id="${st.id}" draggable="true">
-                    <div class="flex justify-between items-start">
-                        <div class="flex-grow">
-                            <div class="flex items-center gap-2">
-                                ${ticketDisplay}
-                                <button class="action-btn" data-action="edit-link" title="Edit Link"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.72"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.72-1.72"></path></svg></button>
-                            </div>
-                            <span class="block text-sm opacity-80">${ti.name}</span>
-                            <div class="flex items-baseline gap-2 mt-1">
-                                <span class="block text-sm font-bold">${st.hours.toFixed(2)}h</span>
-                                <span class="text-xs text-gray-500 font-mono">(${loggedHours.toFixed(1)}h logged)</span>
-                            </div>
-                        </div>
-                        <div class="flex flex-col gap-1.5 ml-2">
-                             <button class="action-btn" data-action="edit-hours" title="Adjust Hours"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg></button>
-                            <button class="action-btn" data-action="checklist" title="Manage Sub-tasks & Progress"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 6.75h7.5M8.25 12h7.5m-7.5 5.25h7.5M3.75 6.75h.007v.008H3.75V6.75zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zM3.75 12h.007v.008H3.75V12zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm-.375 5.25h.007v.008H3.75v-.008zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" /></svg></button>
-                        </div>
-                    </div>
-                    <div class="progress-bar-container"><div class="progress-bar-bg"><div class="progress-bar-fg" style="width: ${progress}%;"></div><div class="progress-bar-text">${doneLabel}</div></div></div>
-                </div>`;
-        }).join('');
-        return `<td class="p-2 align-top day-column ${dayOffStatus !== 'none' ? 'day-off-full' : ''}" data-day-id="${dayId}">
-            <div class="text-xs font-semibold text-center mb-2 p-1 rounded-full ${remainingClass} bg-opacity-20 ${unloggedTotal < 0 ? 'bg-red-200' : 'bg-gray-200'}">Unlogged: ${unloggedTotal.toFixed(2)}h</div>
-            ${taskCards}
-        </td>`;
-    }).join('') + '</tr>';
-
-    return `<table class="w-full min-w-[600px]"><thead class="bg-gray-50"><tr>${headHtml}</tr></thead><tbody class="divide-y divide-gray-200">${bodyHtml}</tbody></table>`;
+    });
+    return { storySummary, bugSummary };
 }
 
 // --- EVENT HANDLING & ACTIONS ---
-function switchTab(sprintId) {
-    appState.activeSprintId = sprintId;
-    renderApp();
-}
-
-function updateSprintName(newName) {
-    const sprint = appState.sprints[appState.activeSprintId];
-    if (sprint) {
-        sprint.sprintName = newName;
-        renderTabs();
-        saveState();
-    }
-}
-
 function addSprintContentEventListeners() {
     const container = document.getElementById('sprint-content');
-    container.addEventListener('click', (e) => {
-        const cardButton = e.target.closest('[data-action]');
-        if (cardButton) {
-            handleCardClick(e);
-            return;
+    container.addEventListener('click', e => {
+        const actionBtn = e.target.closest('[data-action]');
+        if (actionBtn) {
+            const { action, week, scheduledId, dayId } = actionBtn.dataset;
+            switch(action) {
+                case 'set-start-date': showCalendarModal("Set Sprint Start Date", (selectedDate) => {
+                    appState.sprints[appState.activeSprintId].startDate = selectedDate;
+                    renderApp();
+                }); break;
+                case 'show-exceeded': showExceededLogsModal(week); break;
+                case 'dist-demo-prep': showDemoPrepModal(); break;
+                case 'edit-single-task': showEditSingleTaskModal(scheduledId); break;
+                case 'delete-single-task': handleDeleteSingleTask(scheduledId); break;
+                case 'add-day-task': showAddTaskModal(dayId); break;
+                case 'delete-day-tasks': handleDeleteAllTasks(dayId); break;
+            }
         }
+        
+        const statusToggle = e.target.closest('.status-toggle');
+        if(statusToggle) {
+             const dayId = statusToggle.dataset.dayId;
+             const state = statusToggle.dataset.state;
+             const rect = statusToggle.getBoundingClientRect();
+             const clickX = e.clientX - rect.left;
+             let newState = state;
+             if(clickX < rect.width / 3) newState = 'full';       // OFF
+             else if (clickX > rect.width * 2 / 3) newState = 'half'; // HALF
+             else newState = 'none';                              // ON
+             
+             if(newState !== state) {
+                handleDayStatusChange(dayId, newState);
+             }
+        }
+    });
 
-        const capacityEditor = e.target.closest('.capacity-edit');
-        if (capacityEditor) {
-            handleEditDayCapacity(capacityEditor.dataset.dayId);
-            return;
+    container.addEventListener('change', e => {
+        const capacityInput = e.target.closest('.capacity-input');
+        if (capacityInput) {
+            handleCapacityChange(capacityInput.dataset.dayId, parseFloat(capacityInput.value));
+            capacityInput.classList.add('changed');
+            setTimeout(() => capacityInput.classList.remove('changed'), 1500);
         }
     });
 
@@ -469,21 +463,68 @@ function addSprintContentEventListeners() {
     container.addEventListener('drop', handleDrop);
 }
 
-function handleCardClick(e) {
-    const button = e.target.closest('[data-action]');
-    if (!button) return;
-    
-    const action = button.dataset.action;
-    const card = e.target.closest('.task-card');
-    const scheduledId = card.dataset.scheduledId;
-    if (!scheduledId) return;
-
-    if (action === 'checklist') handleChecklistClick(scheduledId);
-    if (action === 'edit-link') handleParentLinkClick(scheduledId);
-    if (action === 'edit-hours') handleEditTaskHours(scheduledId);
+function handleCapacityChange(dayId, newCapacity) {
+    if (isNaN(newCapacity) || newCapacity < 0) return;
+    const sprint = appState.sprints[appState.activeSprintId];
+    sprint.dailyLimits[dayId] = newCapacity;
+    sprint.defaultDailyLimits[dayId] = newCapacity;
+    renderApp();
 }
 
+function handleDayStatusChange(dayId, newStatus) {
+    const sprint = appState.sprints[appState.activeSprintId];
+    const oldStatus = sprint.daysOff[dayId];
+    if (oldStatus === newStatus) return;
 
+    sprint.daysOff[dayId] = newStatus;
+    const defaultCapacity = sprint.defaultDailyLimits[dayId];
+
+    if (newStatus === 'full') {
+        sprint.dailyLimits[dayId] = 0;
+        const tasksToMove = sprint.schedule[dayId] || [];
+        if (tasksToMove.length > 0) {
+            showMoveOrDeleteTasksModal(dayId, tasksToMove);
+        } else {
+            renderApp();
+        }
+    } else if (newStatus === 'half') {
+        sprint.dailyLimits[dayId] = defaultCapacity / 2;
+        const scheduledHours = (sprint.schedule[dayId] || []).reduce((s,t) => s + t.hours, 0);
+        if (scheduledHours > sprint.dailyLimits[dayId]) {
+            showHalfDayAdjustmentModal(dayId);
+        } else {
+            renderApp();
+        }
+    } else { // 'none'
+        sprint.dailyLimits[dayId] = defaultCapacity;
+        renderApp();
+    }
+}
+
+function handleDeleteSingleTask(scheduledId) {
+    const { dayId, scheduledTask } = findScheduledTaskById(scheduledId);
+    if (!scheduledTask) return;
+    
+    const sprint = appState.sprints[appState.activeSprintId];
+    const taskDef = sprint.tasks[scheduledTask.taskId];
+
+    showConfirmationModal(`Are you sure you want to delete this task entry? <br>(${taskDef.ticketId.replace(/^NCOP-/, '')} - ${taskDef.name} - ${scheduledTask.hours}h)`, () => {
+        sprint.schedule[dayId] = sprint.schedule[dayId].filter(t => t.id !== scheduledId);
+        renderApp();
+    });
+}
+
+function handleDeleteAllTasks(dayId) {
+    const sprint = appState.sprints[appState.activeSprintId];
+    if(!sprint.schedule[dayId] || sprint.schedule[dayId].length === 0) return;
+    
+    showConfirmationModal(`Are you sure you want to delete all tasks from ${dayMeta[dayId].name}?`, () => {
+        delete sprint.schedule[dayId];
+        renderApp();
+    });
+}
+
+// --- DRAG & DROP LOGIC ---
 function handleDragStart(e) {
     const card = e.target.closest('.task-card');
     if (card) {
@@ -492,1611 +533,303 @@ function handleDragStart(e) {
         setTimeout(() => card.classList.add('dragging'), 0);
     }
 }
-
 function handleDragOver(e) {
     e.preventDefault();
     const targetDayCol = e.target.closest('.day-column');
     if (targetDayCol) {
-        handleDragLeave();
-        targetDayCol.classList.add('drag-over');
+        const sprint = appState.sprints[appState.activeSprintId];
+        if(sprint.daysOff[targetDayCol.dataset.dayId] !== 'full') {
+             document.querySelectorAll('.day-column.drag-over').forEach(c => c.classList.remove('drag-over'));
+            targetDayCol.classList.add('drag-over');
+        }
     }
 }
-
-function handleDragLeave() {
-    document.querySelectorAll('.day-column.drag-over').forEach(c => c.classList.remove('drag-over'));
+function handleDragLeave(e) {
+    const dayColumn = e.target.closest('.day-column');
+    if (dayColumn && !dayColumn.contains(e.relatedTarget)) {
+       dayColumn.classList.remove('drag-over');
+    }
 }
-
 function handleDrop(e) {
     e.preventDefault();
     document.querySelectorAll('.task-card.dragging').forEach(c => c.classList.remove('dragging'));
-    handleDragLeave();
-    
+    document.querySelectorAll('.day-column.drag-over').forEach(c => c.classList.remove('drag-over'));
     const sourceScheduledId = e.dataTransfer.getData('text/plain');
     if (!sourceScheduledId) return;
+
+    const targetDayCol = e.target.closest('.day-column');
+    const targetDayId = targetDayCol?.dataset.dayId;
     
-    const { dayId: targetDayId } = findDayFromElement(e.target);
-    const { dayId: sourceDayId } = findScheduledTaskById(sourceScheduledId);
-    
-    if (targetDayId && sourceDayId && targetDayId !== sourceDayId) {
-        showAdvancedDropModal(sourceScheduledId, targetDayId);
-    }
-}
+    const { dayId: sourceDayId, scheduledTask: sourceTask } = findScheduledTaskById(sourceScheduledId);
 
-// --- TASK MANIPULATION LOGIC (New Advanced Drag/Drop) ---
+    if (targetDayId && sourceDayId && targetDayId !== sourceDayId && sourceTask) {
+        const sprint = appState.sprints[appState.activeSprintId];
+        const scheduledHoursOnTarget = (sprint.schedule[targetDayId] || []).reduce((sum, t) => sum + t.hours, 0);
+        const capacityOnTarget = sprint.dailyLimits[targetDayId];
 
-function showAdvancedDropModal(sourceScheduledId, targetDayId) {
-    const sprint = appState.sprints[appState.activeSprintId];
-    const { scheduledTask: sourceTaskInfo, dayId: sourceDayId } = findScheduledTaskById(sourceScheduledId);
-    const sourceTaskDefinition = sprint.tasks[sourceTaskInfo.taskId];
-
-    const modalContent = showModal(`
-        <h3 class="text-lg font-semibold text-gray-800 mb-4">Move Task: ${sourceTaskDefinition.name} (${sourceTaskDefinition.ticketId})</h3>
-        <p class="text-sm text-gray-600 mb-4">You are moving a task from <strong>${dayMeta[sourceDayId].name}</strong> to <strong>${dayMeta[targetDayId].name}</strong>. Choose an action:</p>
+        const existingTaskOnTarget = sprint.schedule[targetDayId]?.find(t => t.taskId === sourceTask.taskId);
         
-        <div class="space-y-3">
-            <button id="drop-action-swap" class="w-full text-left p-4 border rounded-lg hover:bg-gray-50 transition-colors">
-                <strong class="text-indigo-600">Swap Tasks</strong>
-                <p class="text-xs text-gray-600">Choose a task on the target day to exchange places with. The time allocations for each day will remain the same.</p>
-            </button>
-            <button id="drop-action-split" class="w-full text-left p-4 border rounded-lg hover:bg-gray-50 transition-colors">
-                <strong class="text-indigo-600">Move a Part (Split)</strong>
-                <p class="text-xs text-gray-600">Move some hours from this task to the target day, adjusting hours on both days.</p>
-            </button>
-        </div>
+        if (scheduledHoursOnTarget + sourceTask.hours > capacityOnTarget && !existingTaskOnTarget) {
+            showMessageModal("Cannot move task. Target day capacity would be exceeded.", "Move Failed");
+            return;
+        }
 
-        <div class="flex justify-end gap-3 mt-6">
-            <button onclick="hideModal()" class="px-4 py-2 bg-gray-200 rounded-md">Cancel</button>
-        </div>
-    `);
-
-    modalContent.querySelector('#drop-action-swap').onclick = () => showSwapSelectionModal(sourceScheduledId, targetDayId);
-    modalContent.querySelector('#drop-action-split').onclick = () => showSplitAmountModal(sourceScheduledId, targetDayId);
+        const taskIndex = sprint.schedule[sourceDayId].findIndex(t => t.id === sourceScheduledId);
+        const [taskToMove] = sprint.schedule[sourceDayId].splice(taskIndex, 1);
+        if (!sprint.schedule[targetDayId]) sprint.schedule[targetDayId] = [];
+        
+        if (existingTaskOnTarget) {
+            existingTaskOnTarget.hours += taskToMove.hours;
+        } else {
+            sprint.schedule[targetDayId].push(taskToMove);
+        }
+        renderApp();
+    }
 }
 
-function showSwapSelectionModal(sourceScheduledId, targetDayId) {
+// --- TASK MODALS ---
+function showAddTaskModal(dayId, previousData = {}) {
     const sprint = appState.sprints[appState.activeSprintId];
-    const { scheduledTask: sourceTaskInfo, dayId: sourceDayId } = findScheduledTaskById(sourceScheduledId);
-    const sourceTaskDefinition = sprint.tasks[sourceTaskInfo.taskId];
-    const targetTasksOnDay = sprint.schedule[targetDayId] || [];
+    const { availableTasks, dayScheduledHours } = getAvailableTasks(sprint, dayId);
+    const dayCapacity = sprint.dailyLimits[dayId];
+    const remainingCapacity = dayCapacity - dayScheduledHours;
 
-    if (targetTasksOnDay.length === 0) {
-        return showMessageModal("Target day is empty, cannot swap. Try a different move action.", "Swap Failed");
-    }
+    const taskGroups = {};
+    const groupOrder = ['Create TCs', 'Execute TCs', 'Verify Bug'];
     
-    let optionsHtml = targetTasksOnDay.map(targetScheduledTask => {
-        const targetTaskDefinition = sprint.tasks[targetScheduledTask.taskId];
+    availableTasks.forEach(task => {
+        if(task.unplannedHours <= 0) return;
+        const groupName = task.name === 'Verify Bug' ? 'Verify Bug' : 
+                          task.name === 'Create TCs' ? 'Create TCs' : 
+                          task.name === 'Execute TCs' ? 'Execute TCs' : 
+                          'Other';
+        if (!taskGroups[groupName]) taskGroups[groupName] = [];
+        taskGroups[groupName].push(task);
+    });
 
-        return `
-            <button data-target-id="${targetScheduledTask.id}" class="p-3 border rounded-md text-left hover:bg-indigo-50 transition-colors w-full">
-                <strong class="text-sm">Swap with: ${targetTaskDefinition.name} (${targetTaskDefinition.ticketId})</strong>
-                <div class="text-xs mt-2 text-gray-600">
-                    <p>• <strong>${sourceTaskDefinition.name}</strong> will move to ${dayMeta[targetDayId].name} and be allocated <strong>${targetScheduledTask.hours.toFixed(2)}h</strong>.</p>
-                    <p>• <strong>${targetTaskDefinition.name}</strong> will move to ${dayMeta[sourceDayId].name} and be allocated <strong>${sourceTaskInfo.hours.toFixed(2)}h</strong>.</p>
-                </div>
-            </button>`;
+    const finalGroupOrder = groupOrder.concat(Object.keys(taskGroups).filter(k => !groupOrder.includes(k) && taskGroups[k].length > 0));
+    
+    const tabsHtml = finalGroupOrder.map(groupName => {
+        if (!taskGroups[groupName]) return '';
+        return `<button class="tab" data-group="${groupName}">${groupName}</button>`;
     }).join('');
 
-    const modalContent = showModal(`
-        <h3 class="text-lg font-semibold text-gray-800 mb-2">Swap: ${sourceTaskDefinition.name} (${sourceTaskDefinition.ticketId})</h3>
-        <p class="text-sm text-gray-600 mb-4">Select a task on <strong>${dayMeta[targetDayId].name}</strong> to exchange places with. The hour allocations will be swapped as well.</p>
-        <div id="swap-options" class="space-y-2 max-h-64 overflow-y-auto pr-2">${optionsHtml}</div>
-        <div class="flex justify-end gap-3 mt-6">
-             <button onclick="showAdvancedDropModal('${sourceScheduledId}', '${targetDayId}')" class="px-4 py-2 bg-gray-200 rounded-md">Back</button>
-        </div>
-    `);
-
-    modalContent.querySelector('#swap-options').addEventListener('click', (e) => {
-        const targetButton = e.target.closest('button[data-target-id]');
-        if (targetButton) {
-            swapTasks(sourceScheduledId, targetButton.dataset.targetId);
-            hideModal();
-        }
-    });
-}
-
-function showSplitAmountModal(sourceScheduledId, targetDayId) {
-    const sprint = appState.sprints[appState.activeSprintId];
-    const { scheduledTask: sourceTaskInfo } = findScheduledTaskById(sourceScheduledId);
-    const taskDef = sprint.tasks[sourceTaskInfo.taskId];
-
-    const modalContent = showModal(`
-        <h3 class="text-lg font-semibold text-gray-800 mb-2">Move a Part (Split)</h3>
-        <p class="text-sm text-gray-600 mb-4">How many hours of "<strong>${taskDef.name} - ${taskDef.ticketId}</strong>" do you want to move?</p>
-        <div>
-            <label for="split-hours-input" class="block text-sm font-medium text-gray-700">Hours to Move (Max: ${sourceTaskInfo.hours.toFixed(2)}h)</label>
-            <input id="split-hours-input" type="number" class="form-input mt-1" max="${sourceTaskInfo.hours}" min="0.25" step="0.25" value="1">
-        </div>
-        <div class="flex justify-end gap-3 mt-6">
-            <button onclick="showAdvancedDropModal('${sourceScheduledId}', '${targetDayId}')" class="px-4 py-2 bg-gray-200 rounded-md">Back</button>
-            <button id="next-split-btn" class="px-4 py-2 bg-indigo-600 text-white rounded-md">Next: Adjust Target Day</button>
-        </div>
-    `);
-
-    modalContent.querySelector('#next-split-btn').onclick = () => {
-        const hoursToMove = parseFloat(modalContent.querySelector('#split-hours-input').value);
-        if (isNaN(hoursToMove) || hoursToMove <= 0 || hoursToMove > sourceTaskInfo.hours) {
-            showMessageModal("Please enter a valid number of hours to move.", "Invalid Input");
-            return;
-        }
-        showSplitTargetDayModal(sourceScheduledId, targetDayId, hoursToMove);
-    };
-}
-
-function showSplitTargetDayModal(sourceScheduledId, targetDayId, hoursToMove) {
-    const sprint = appState.sprints[appState.activeSprintId];
-    const { scheduledTask: sourceTaskInfo } = findScheduledTaskById(sourceScheduledId);
-    const sourceTaskDefinition = sprint.tasks[sourceTaskInfo.taskId];
-    const targetTasksOnDay = [...(sprint.schedule[targetDayId] || [])];
-    
-    let tasksHtml = targetTasksOnDay.map((task, index) => {
-        const taskDef = sprint.tasks[task.taskId];
-        return `
-            <div class="grid grid-cols-12 gap-2 items-center">
-                <span class="text-sm font-medium truncate col-span-4" title="${taskDef.name} (${taskDef.ticketId})">${taskDef.name} (${taskDef.ticketId})</span>
-                <span class="text-sm font-mono text-center col-span-2">${task.hours.toFixed(2)}h</span>
-                <div class="col-span-3"><input type="number" class="form-input text-sm target-reduce-input" data-index="${index}" value="0" min="0" max="${task.hours}" step="0.25"></div>
-                <div class="col-span-3"><button class="text-xs px-2 py-1 bg-gray-200 rounded hover:bg-gray-300 w-full use-target-hours-btn" data-index="${index}">Use</button></div>
-            </div>
-        `;
-    }).join('<hr class="my-2 -mx-2">');
-    
-    if(targetTasksOnDay.length === 0){
-        tasksHtml = `<p class="text-center text-sm text-gray-500 col-span-3">Target day is empty. New task will be added if capacity allows.</p>`
-    }
-
-    const modalContent = showModal(`
-        <h3 class="text-lg font-semibold text-gray-800 mb-2">Adjust Target Day: ${dayMeta[targetDayId].name}</h3>
-        <div class="p-3 bg-indigo-50 border border-indigo-200 rounded-md mb-4 text-center">
-            <p class="text-sm text-indigo-800">Making space for <strong>${hoursToMove.toFixed(2)}h</strong> of "${sourceTaskDefinition.name}"</p>
-        </div>
-        
-        <div class="grid grid-cols-12 gap-2 font-bold text-xs uppercase text-gray-500 mb-2">
-            <span class="col-span-4">Task on Target Day</span>
-            <span class="text-center col-span-2">Current</span>
-            <span class="text-center col-span-3">Reduce By</span>
-            <span class="text-center col-span-3">Action</span>
-        </div>
-        <div id="target-day-tasks" class="space-y-2">${tasksHtml}</div>
-        
-        <div id="target-balance-notification" class="mt-4 p-2 text-center font-bold rounded-md"></div>
-
-        <div class="flex justify-end gap-3 mt-6">
-            <button onclick="showSplitAmountModal('${sourceScheduledId}', '${targetDayId}')" class="px-4 py-2 bg-gray-200 rounded-md">Back</button>
-            <button id="next-split-target-btn" class="px-4 py-2 bg-indigo-600 text-white rounded-md disabled:opacity-50">Next</button>
-        </div>
-    `);
-
-    const notification = modalContent.querySelector('#target-balance-notification');
-    const nextBtn = modalContent.querySelector('#next-split-target-btn');
-    const container = modalContent.querySelector('#target-day-tasks');
-    const inputs = container.querySelectorAll('.target-reduce-input');
-
-    const checkTargetBalance = () => {
-        const totalReduced = Array.from(inputs).reduce((sum, input) => sum + (parseFloat(input.value) || 0), 0);
-        const remaining = hoursToMove - totalReduced;
-        
-        const currentScheduled = targetTasksOnDay.reduce((sum, t) => sum + t.hours, 0);
-        const capacity = sprint.dailyLimits[targetDayId];
-        const newTotal = currentScheduled - totalReduced + hoursToMove;
-
-        // Disable/enable inputs based on balance
-        inputs.forEach(input => {
-             input.disabled = (remaining <= 0 && (parseFloat(input.value) || 0) === 0);
-        });
-        container.querySelectorAll('.use-target-hours-btn').forEach(btn => {
-            btn.disabled = (remaining <= 0);
-        });
-
-        if (newTotal > capacity + 0.01 && targetTasksOnDay.length > 0) {
-            notification.className = 'mt-4 p-2 text-center font-bold rounded-md bg-red-100 text-red-700';
-            notification.textContent = `This change exceeds day capacity (${newTotal.toFixed(2)}h / ${capacity.toFixed(2)}h). Reduce more hours.`;
-            nextBtn.disabled = true;
-            return;
-        }
-
-        if (Math.abs(remaining) < 0.01 || targetTasksOnDay.length === 0) {
-            notification.className = 'mt-4 p-2 text-center font-bold rounded-md bg-green-100 text-green-700';
-            notification.textContent = `Ready to move ${hoursToMove.toFixed(2)}h.`;
-            nextBtn.disabled = false;
-        } else {
-            notification.className = 'mt-4 p-2 text-center font-bold rounded-md bg-yellow-100 text-yellow-700';
-            notification.textContent = `You still need to reduce ${remaining.toFixed(2)}h.`;
-            nextBtn.disabled = true;
-        }
-    };
-    
-    container.addEventListener('input', e => {
-        if (e.target.classList.contains('target-reduce-input')) {
-            checkTargetBalance();
-        }
-    });
-
-    container.addEventListener('click', e => {
-        if (e.target.classList.contains('use-target-hours-btn')) {
-            const index = e.target.dataset.index;
-            const input = inputs[index];
-            const max = parseFloat(input.max);
-            
-            const otherInputsTotal = Array.from(inputs).reduce((sum, currentInput, i) => {
-                return i === parseInt(index) ? sum : sum + (parseFloat(currentInput.value) || 0);
-            }, 0);
-            
-            const needed = hoursToMove - otherInputsTotal;
-            input.value = Math.min(max, needed).toFixed(2);
-            checkTargetBalance();
-        }
-    });
-    
-    checkTargetBalance();
-
-    nextBtn.onclick = () => {
-        const reductions = Array.from(inputs).map((input, index) => ({
-            scheduledId: targetTasksOnDay[index].id,
-            amount: parseFloat(input.value) || 0
-        })).filter(r => r.amount > 0);
-        
-        showSplitSourceDayModal(sourceScheduledId, targetDayId, hoursToMove, reductions);
-    };
-}
-
-function showSplitSourceDayModal(sourceScheduledId, targetDayId, hoursToMove, targetReductions) {
-    const sprint = appState.sprints[appState.activeSprintId];
-    const { dayId: sourceDayId } = findScheduledTaskById(sourceScheduledId);
-    const otherTasksOnSource = sprint.schedule[sourceDayId].filter(t => t.id !== sourceScheduledId);
-
-    let tasksHtml = '';
-    if (otherTasksOnSource.length > 0) {
-        tasksHtml = otherTasksOnSource.map((task, index) => {
-            const taskDef = sprint.tasks[task.taskId];
+    const renderTaskGroup = (groupName) => {
+        const groupTasks = taskGroups[groupName] || [];
+        groupTasks.sort((a, b) => (b.points || 0) - (a.points || 0));
+        return groupTasks.map(task => {
+            const fullText = `${task.ticketId} - ${task.name} - ${task.title}`;
+            const shortText = `${task.ticketId.replace(/^NCOP-/, '')} - ${task.name}`;
             return `
-                <div class="grid grid-cols-12 gap-2 items-center">
-                    <span class="text-sm font-medium truncate col-span-4" title="${taskDef.name} (${taskDef.ticketId})">${taskDef.name} (${taskDef.ticketId})</span>
-                    <span class="text-sm font-mono text-center col-span-2">${task.hours.toFixed(2)}h</span>
-                    <div class="col-span-3"><input type="number" class="form-input text-sm source-add-input" data-index="${index}" value="0" min="0" step="0.25"></div>
-                    <div class="col-span-3"><button class="text-xs px-2 py-1 bg-gray-200 rounded hover:bg-gray-300 w-full use-source-hours-btn" data-index="${index}">Use</button></div>
+            <div class="p-3 border rounded-md flex justify-between items-center bg-white" data-task-id="${task.id}">
+                <div class="flex-grow pr-4 overflow-hidden">
+                    <p class="font-medium truncate text-sm" title="${fullText}">${shortText}</p>
+                    <p class="text-xs text-gray-500 truncate" title="${fullText}">${task.title}</p>
                 </div>
-            `;
-        }).join('<hr class="my-2 -mx-2">');
-    } else {
-        tasksHtml = `<p class="text-center text-sm text-gray-500">No other tasks on this day to move time to. The source task will be reduced.</p>`;
+                <div class="w-40 flex-shrink-0">
+                    <input type="number" class="form-input add-task-hours-input text-right" placeholder="Rem: ${task.unplannedHours.toFixed(2)}h" min="0" step="0.25" value="${previousData[task.id] || ''}">
+                </div>
+            </div>
+        `}).join('') || '<p class="text-center text-gray-500 p-4">No tasks available in this category.</p>';
     }
+    
+    const activeTab = appState.uiState.lastAddTaskTab && taskGroups[appState.uiState.lastAddTaskTab] ? appState.uiState.lastAddTaskTab : finalGroupOrder[0];
 
     const modalContent = showModal(`
-        <h3 class="text-lg font-semibold text-gray-800 mb-2">Adjust Source Day</h3>
-        <p class="text-sm text-gray-600 mb-4">You have freed up <strong>${hoursToMove.toFixed(2)}h</strong> on <strong>${dayMeta[sourceDayId].name}</strong>. You can optionally re-assign this time to other tasks on the same day.</p>
-        
-        <div class="grid grid-cols-12 gap-2 font-bold text-xs uppercase text-gray-500 mb-2">
-            <span class="col-span-4">Task</span>
-            <span class="text-center col-span-2">Current</span>
-            <span class="text-center col-span-3">Add Hours</span>
-            <span class="text-center col-span-3">Action</span>
+        <div class="p-2 text-center rounded-md text-sm font-semibold ${remainingCapacity < 0 ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'}">
+            Day Capacity: ${remainingCapacity.toFixed(2)}h remaining
         </div>
-        <div id="source-day-tasks" class="space-y-1">${tasksHtml}</div>
-        
-        <div id="source-balance-notification" class="mt-4 p-2 text-center font-bold rounded-md"></div>
-
-        <div class="flex justify-end gap-3 mt-6">
-            <button onclick="showSplitTargetDayModal('${sourceScheduledId}', '${targetDayId}', ${hoursToMove})" class="px-4 py-2 bg-gray-200 rounded-md">Back</button>
-            <button id="confirm-split-btn" class="px-4 py-2 bg-indigo-600 text-white rounded-md">Confirm & Finish Move</button>
+        <div class="border-b border-gray-200 flex mt-4">${tabsHtml}</div>
+        <div id="task-list-container" class="mt-4 space-y-2 max-h-60 overflow-y-auto pr-2">${renderTaskGroup(activeTab)}</div>
+        <div class="flex justify-end mt-6">
+            <button id="confirm-add-task-btn" class="px-4 py-2 bg-indigo-600 text-white rounded-md">Add Task(s)</button>
         </div>
-    `);
+    `, `Add Task to ${dayMeta[dayId].name}`);
 
-    const notification = modalContent.querySelector('#source-balance-notification');
-    const nextBtn = modalContent.querySelector('#confirm-split-btn');
-    const container = modalContent.querySelector('#source-day-tasks');
-    const inputs = container.querySelectorAll('.source-add-input');
+    modalContent.querySelector('#task-list-container').querySelectorAll('.add-task-hours-input').forEach(input => {
+        const taskId = input.closest('[data-task-id]').dataset.taskId;
+        if(previousData[taskId]) input.value = previousData[taskId];
+    });
 
-    const checkSourceBalance = () => {
-        const totalAdded = Array.from(inputs).reduce((sum, input) => sum + (parseFloat(input.value) || 0), 0);
-        const remaining = hoursToMove - totalAdded;
+    const tabs = modalContent.querySelectorAll('.tab');
+    const taskListContainer = modalContent.querySelector('#task-list-container');
+    modalContent.querySelector(`[data-group="${activeTab}"]`)?.classList.add('active');
+    
+    tabs.forEach(tab => {
+        tab.onclick = () => {
+            tabs.forEach(t => t.classList.remove('active'));
+            tab.classList.add('active');
+            taskListContainer.innerHTML = renderTaskGroup(tab.dataset.group);
+            appState.uiState.lastAddTaskTab = tab.dataset.group;
+        }
+    });
+
+    modalContent.querySelector('#confirm-add-task-btn').onclick = () => {
+        const inputs = modalContent.querySelectorAll('.add-task-hours-input');
+        let totalHoursToAdd = 0;
+        const tasksToAdd = [];
+        const currentData = {};
         
         inputs.forEach(input => {
-            input.disabled = (remaining <= 0 && (parseFloat(input.value) || 0) === 0);
-        });
-        container.querySelectorAll('.use-source-hours-btn').forEach(btn => {
-            btn.disabled = (remaining <= 0);
-        });
-
-        if (totalAdded > hoursToMove + 0.01) {
-             notification.className = 'mt-4 p-2 text-center font-bold rounded-md bg-red-100 text-red-700';
-             notification.textContent = `You cannot add more than the freed ${hoursToMove.toFixed(2)}h.`;
-             nextBtn.disabled = true;
-        } else {
-             notification.className = 'mt-4 p-2 text-center font-bold rounded-md bg-blue-100 text-blue-700';
-             notification.textContent = `${remaining.toFixed(2)}h remaining to be assigned.`;
-             nextBtn.disabled = false;
-        }
-    };
-    
-    container.addEventListener('input', e => {
-        if (e.target.classList.contains('source-add-input')) {
-            checkSourceBalance();
-        }
-    });
-    
-    container.addEventListener('click', e => {
-        if (e.target.classList.contains('use-source-hours-btn')) {
-            const index = e.target.dataset.index;
-            const input = inputs[index];
-            
-            const otherInputsTotal = Array.from(inputs).reduce((sum, currentInput, i) => {
-                return i === parseInt(index) ? sum : sum + (parseFloat(currentInput.value) || 0);
-            }, 0);
-            
-            const needed = hoursToMove - otherInputsTotal;
-            input.value = needed.toFixed(2);
-            checkSourceBalance();
-        }
-    });
-
-    checkSourceBalance();
-
-    nextBtn.onclick = () => {
-        const sourceAdditions = Array.from(inputs).map((input, index) => ({
-            scheduledId: otherTasksOnSource[index].id,
-            amount: parseFloat(input.value) || 0
-        })).filter(r => r.amount > 0);
-        
-        executeSplitMove(sourceScheduledId, targetDayId, hoursToMove, targetReductions, sourceAdditions);
-        hideModal();
-    };
-}
-
-function executeSplitMove(sourceScheduledId, targetDayId, hoursToMove, targetReductions, sourceAdditions) {
-    const sprint = appState.sprints[appState.activeSprintId];
-    const { dayId: sourceDayId, scheduledTask: sourceTaskInfo } = findScheduledTaskById(sourceScheduledId);
-
-    // --- Target Day Logic ---
-    // 1. Reduce hours from specified tasks
-    targetReductions.forEach(reduction => {
-        const task = findScheduledTaskById(reduction.scheduledId).scheduledTask;
-        if(task) task.hours -= reduction.amount;
-    });
-
-    // 2. Add the new split task part to the target day
-    if (!sprint.schedule[targetDayId]) sprint.schedule[targetDayId] = [];
-    const existingTaskOnTarget = sprint.schedule[targetDayId].find(t => t.taskId === sourceTaskInfo.taskId);
-    if (existingTaskOnTarget) {
-        existingTaskOnTarget.hours += hoursToMove;
-    } else {
-        const newSplitTask = {
-            id: `s_${targetDayId}_${sourceTaskInfo.taskId}_${Math.random()}`,
-            taskId: sourceTaskInfo.taskId,
-            hours: hoursToMove,
-            subTasks: [] // Fresh subtasks for the new part
-        };
-        sprint.schedule[targetDayId].push(newSplitTask);
-    }
-    
-    // --- Source Day Logic ---
-    // 1. Reduce the hours from the original source task
-    sourceTaskInfo.hours -= hoursToMove;
-
-    // 2. Add the freed-up hours to other tasks on the source day
-    sourceAdditions.forEach(addition => {
-        const task = findScheduledTaskById(addition.scheduledId).scheduledTask;
-        if(task) task.hours += addition.amount;
-    });
-
-    // Clean up any tasks that now have zero hours
-    Object.keys(sprint.schedule).forEach(dayId => {
-        sprint.schedule[dayId] = sprint.schedule[dayId].filter(t => t.hours > 0.01);
-    });
-
-    renderApp();
-}
-
-function swapTasks(sourceId, targetId) {
-    const sprint = appState.sprints[appState.activeSprintId];
-    const sourceInfo = findScheduledTaskById(sourceId);
-    const targetInfo = findScheduledTaskById(targetId);
-
-    if (!sprint || !sourceInfo.scheduledTask || !targetInfo.scheduledTask) return;
-
-    const sourceTask = sourceInfo.scheduledTask;
-    const targetTask = targetInfo.scheduledTask;
-
-    // Store the task-specific data (the "payload")
-    const sourcePayload = {
-        taskId: sourceTask.taskId,
-        subTasks: sourceTask.subTasks,
-        progressOverride: sourceTask.progressOverride,
-    };
-
-    const targetPayload = {
-        taskId: targetTask.taskId,
-        subTasks: targetTask.subTasks,
-        progressOverride: targetTask.progressOverride,
-    };
-    
-    // Swap the payloads, keeping the original hours and schedule ID
-    sourceTask.taskId = targetPayload.taskId;
-    sourceTask.subTasks = targetPayload.subTasks;
-    sourceTask.progressOverride = targetPayload.progressOverride;
-
-    targetTask.taskId = sourcePayload.taskId;
-    targetTask.subTasks = sourcePayload.subTasks;
-    targetTask.progressOverride = sourcePayload.progressOverride;
-    
-    renderApp();
-}
-
-
-function handleParentLinkClick(scheduledId) {
-    const { scheduledTask } = findScheduledTaskById(scheduledId);
-    const task = appState.sprints[appState.activeSprintId].tasks[scheduledTask.taskId];
-    if (!task) return;
-
-    const modalContent = showModal(`
-        <h3 class="text-lg font-semibold mb-4">Link for ${task.ticketId}</h3>
-        <p class="text-sm text-gray-600 my-2">Add or update the Jira/ticket URL for this task.</p>
-        <input id="task-link-input" class="form-input" type="url" value="${task.link || ''}" placeholder="https://your-jira.com/browse/TICKET-123">
-        <div class="flex justify-end mt-4 gap-3">
-            <button onclick="hideModal()" class="px-4 py-2 bg-gray-200 rounded-md">Cancel</button>
-            <button id="save-link-btn" class="px-4 py-2 bg-indigo-600 text-white rounded-md">Save Link</button>
-        </div>`);
-
-    modalContent.querySelector('#save-link-btn').onclick = () => {
-        const link = modalContent.querySelector('#task-link-input').value;
-        task.link = link.trim();
-        hideModal();
-        renderApp();
-    };
-}
-
-function handleChecklistClick(scheduledId) {
-    const { scheduledTask } = findScheduledTaskById(scheduledId);
-    const taskInfo = appState.sprints[appState.activeSprintId].tasks[scheduledTask.taskId];
-    if (!scheduledTask.subTasks) scheduledTask.subTasks = [];
-
-    delete scheduledTask.progressOverride;
-
-    const getSubTaskHtml = (sub, index) => {
-        const isUrl = sub.text.startsWith('http');
-        const textDisplay = isUrl ? `<a href="${sub.text}" target="_blank" class="text-indigo-600 hover:underline flex-grow">${extractTicketIdFromUrl(sub.text) || 'Link'}</a>` : `<span class="flex-grow">${sub.text}</span>`;
-        return `
-            ${textDisplay}
-            <input type="number" class="form-input w-20 text-xs p-1 subtask-log-time" value="${sub.loggedHours || ''}" placeholder="h" data-index="${index}">
-            <button class="subtask-edit-btn p-1 text-xs bg-gray-200 rounded" data-index="${index}">Edit</button>
-        `;
-    };
-
-    const getEditSubTaskHtml = (sub, index) => {
-        return `<input type="text" value="${sub.text}" class="form-input flex-grow subtask-text-input" data-index="${index}"><button class="subtask-save-btn p-1 text-xs bg-green-200 rounded" data-index="${index}">Save</button>`;
-    };
-    
-    const subTasksHtml = scheduledTask.subTasks.map((sub, index) => `
-        <div class="flex items-center gap-2 mb-2 subtask-row" data-index="${index}">
-            <input type="checkbox" class="subtask-checkbox h-4 w-4 rounded" ${sub.done ? 'checked' : ''} data-index="${index}">
-            <div class="flex-grow flex items-center gap-2" data-role="display">${getSubTaskHtml(sub, index)}</div>
-        </div>`).join('');
-    
-    const totalLogged = scheduledTask.subTasks.reduce((acc, sub) => acc + (sub.loggedHours || 0), 0);
-    const scheduledForTask = scheduledTask.hours;
-    const timeStatusClass = totalLogged > scheduledForTask ? 'text-red-600' : 'text-green-600';
-
-    const modalContent = showModal(`
-        <h3 class="text-lg font-semibold mb-4">Checklist for ${taskInfo.name} (${taskInfo.ticketId})</h3>
-        <div class="p-2 bg-gray-50 rounded-md mb-4">
-            <div class="flex justify-between items-center mb-2">
-                 <h4 class="font-medium text-sm">Progress</h4>
-                 <div class="font-mono text-sm ${timeStatusClass}">Logged: ${totalLogged.toFixed(2)}h / Scheduled: ${scheduledForTask.toFixed(2)}h</div>
-            </div>
-            <div class="flex items-center gap-4">
-                <input id="progress-slider" type="range" min="0" max="100" value="${calculateTaskProgress(scheduledTask)}" class="w-full">
-                <span id="progress-value" class="font-bold text-lg">${calculateTaskProgress(scheduledTask)}%</span>
-            </div>
-        </div>
-        <div id="subtask-list">${subTasksHtml}</div>
-        <div class="mt-4 flex gap-2">
-          <input id="new-subtask-input" type="text" class="form-input" placeholder="Enter new sub-task or paste a link...">
-          <button id="add-subtask-btn" class="px-3 py-1.5 text-sm font-medium bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200">+ Add</button>
-        </div>
-        <div class="flex justify-end mt-6"><button onclick="hideModal(); renderApp();" class="px-4 py-2 bg-indigo-600 text-white rounded-md">Done</button></div>`);
-
-    const listEl = modalContent.querySelector('#subtask-list');
-    
-    modalContent.querySelector('#progress-slider').oninput = (e) => {
-        const value = parseInt(e.target.value, 10);
-        modalContent.querySelector('#progress-value').textContent = `${value}%`;
-        scheduledTask.progressOverride = value;
-
-        const checkboxes = modalContent.querySelectorAll('.subtask-checkbox');
-        checkboxes.forEach((cb, index) => {
-            const shouldBeChecked = (value === 100);
-            cb.checked = shouldBeChecked;
-            scheduledTask.subTasks[index].done = shouldBeChecked;
-        });
-        saveState();
-    };
-    
-    const addSubtask = () => {
-        const input = modalContent.querySelector('#new-subtask-input');
-        if (input.value.trim()) {
-            scheduledTask.subTasks.push({ text: input.value.trim(), done: false, loggedHours: 0 });
-            input.value = '';
-            handleChecklistClick(scheduledId); 
-        }
-    };
-    
-    modalContent.querySelector('#add-subtask-btn').onclick = addSubtask;
-    modalContent.querySelector('#new-subtask-input').onkeydown = (e) => { if(e.key === 'Enter') addSubtask(); };
-
-    listEl.addEventListener('change', e => {
-        delete scheduledTask.progressOverride; 
-        if (e.target.classList.contains('subtask-checkbox')) {
-            scheduledTask.subTasks[e.target.dataset.index].done = e.target.checked;
-        }
-        if (e.target.classList.contains('subtask-log-time')) {
-             scheduledTask.subTasks[e.target.dataset.index].loggedHours = parseFloat(e.target.value) || 0;
-        }
-        handleChecklistClick(scheduledId);
-    });
-    
-    listEl.addEventListener('click', e => {
-        const editBtn = e.target.closest('.subtask-edit-btn');
-        if (editBtn) {
-            const index = editBtn.dataset.index;
-            editBtn.parentElement.innerHTML = getEditSubTaskHtml(scheduledTask.subTasks[index], index);
-            editBtn.parentElement.querySelector('input').focus();
-        }
-        const saveBtn = e.target.closest('.subtask-save-btn');
-        if (saveBtn) {
-            const index = saveBtn.dataset.index;
-            const input = saveBtn.parentElement.querySelector('.subtask-text-input');
-            scheduledTask.subTasks[index].text = input.value;
-            saveBtn.parentElement.innerHTML = getSubTaskHtml(scheduledTask.subTasks[index], index);
-            saveState();
-        }
-    });
-}
-
-function handleEditTaskHours(scheduledId) {
-    const sprint = appState.sprints[appState.activeSprintId];
-    const { dayId, scheduledTask } = findScheduledTaskById(scheduledId);
-    if (!sprint || !scheduledTask) return;
-
-    const taskDef = sprint.tasks[scheduledTask.taskId];
-    const tasksOnDay = sprint.schedule[dayId] || [];
-    const otherTasksOnDay = tasksOnDay.filter(t => t.id !== scheduledId);
-
-    const modalContent = showModal(`
-        <h3 class="text-lg font-semibold text-gray-800 mb-2">Adjust Hours for ${taskDef.name} (${taskDef.ticketId})</h3>
-        <p class="text-sm text-gray-600 mb-4">Current Hours: <strong>${scheduledTask.hours.toFixed(2)}h</strong> on <strong>${dayMeta[dayId].name}</strong></p>
-        
-        <div class="mb-4">
-             <label class="block text-sm font-medium text-gray-700">New Hours</label>
-             <input id="new-hours-input" type="number" class="form-input mt-1" value="${scheduledTask.hours.toFixed(2)}" step="0.25" min="0.25">
-        </div>
-
-        <div id="rebalance-section" class="hidden">
-            <h4 class="text-md font-semibold mb-2">Re-balance Day</h4>
-            <div id="balance-info" class="p-2 text-center rounded-md mb-3"></div>
-            <div id="rebalance-tasks-list" class="space-y-2"></div>
-        </div>
-
-        <div class="flex justify-end gap-3 mt-6">
-            <button onclick="hideModal()" class="px-4 py-2 bg-gray-200 rounded-md">Cancel</button>
-            <button id="confirm-adjust-hours" class="px-4 py-2 bg-indigo-600 text-white rounded-md disabled:opacity-50">Confirm Changes</button>
-        </div>
-    `);
-
-    const newHoursInput = modalContent.querySelector('#new-hours-input');
-    const rebalanceSection = modalContent.querySelector('#rebalance-section');
-    const balanceInfo = modalContent.querySelector('#balance-info');
-    const rebalanceTasksList = modalContent.querySelector('#rebalance-tasks-list');
-    const confirmBtn = modalContent.querySelector('#confirm-adjust-hours');
-
-    const originalHours = scheduledTask.hours;
-
-    const updateRebalanceUI = () => {
-        const newHours = parseFloat(newHoursInput.value) || 0;
-        const diff = newHours - originalHours;
-
-        if (Math.abs(diff) < 0.01) {
-            rebalanceSection.classList.add('hidden');
-            confirmBtn.disabled = false;
-            return;
-        }
-
-        rebalanceSection.classList.remove('hidden');
-        
-        let tasksHtml = '';
-        if (otherTasksOnDay.length > 0) {
-            tasksHtml = otherTasksOnDay.map((task, index) => {
-                const otherTaskDef = sprint.tasks[task.taskId];
-                return `
-                <div class="grid grid-cols-12 gap-2 items-center">
-                    <span class="text-sm font-medium truncate col-span-4" title="${otherTaskDef.name} (${otherTaskDef.ticketId})">${otherTaskDef.name}</span>
-                    <span class="text-sm font-mono text-center col-span-2">${task.hours.toFixed(2)}h</span>
-                    <div class="col-span-3"><input type="number" class="form-input text-sm rebalance-input" data-index="${index}" value="0" step="0.25"></div>
-                    <div class="col-span-3"><button class="text-xs px-2 py-1 bg-gray-200 rounded hover:bg-gray-300 w-full use-rebalance-btn" data-index="${index}">Use</button></div>
-                </div>
-            `;
-            }).join('<hr class="my-2 -mx-2">');
-        } else {
-             tasksHtml = `<p class="text-center text-sm text-gray-500">No other tasks to re-balance with.</p>`;
-        }
-        rebalanceTasksList.innerHTML = tasksHtml;
-
-
-        if (diff > 0) { // Increased hours, need to reduce from others
-            balanceInfo.className = 'p-2 text-center rounded-md mb-3 bg-red-100 text-red-700';
-            balanceInfo.textContent = `Must reduce ${diff.toFixed(2)}h from other tasks.`;
-        } else { // Decreased hours, can add to others
-            balanceInfo.className = 'p-2 text-center rounded-md mb-3 bg-green-100 text-green-700';
-            balanceInfo.textContent = `Can re-assign ${(-diff).toFixed(2)}h to other tasks.`;
-        }
-        
-        checkBalance(diff);
-    };
-
-    const checkBalance = (diff) => {
-        const rebalanceInputs = rebalanceTasksList.querySelectorAll('.rebalance-input');
-        const totalRebalanced = Array.from(rebalanceInputs).reduce((sum, input) => sum + (parseFloat(input.value) || 0), 0);
-        
-        let needed = diff > 0 ? diff : -diff; // Absolute difference needed to balance
-        let balanceMessage = '';
-        let isBalanced = false;
-
-        if(otherTasksOnDay.length === 0 && diff > 0) {
-            balanceMessage = 'Cannot increase hours, no other tasks to take time from.';
-            isBalanced = false;
-        } else if (Math.abs(totalRebalanced - needed) < 0.01) {
-             balanceMessage = 'Day is balanced. Ready to save.';
-             isBalanced = true;
-        } else {
-            const remaining = needed - totalRebalanced;
-            balanceMessage = `Still need to ${diff > 0 ? 'reduce' : 'add'} ${remaining.toFixed(2)}h.`;
-            isBalanced = false;
-        }
-        
-        if (diff < 0 && totalRebalanced > needed + 0.01) {
-            balanceMessage = `Cannot assign more than the freed ${needed.toFixed(2)}h.`;
-            isBalanced = false;
-        }
-
-        let notification = modalContent.querySelector('#target-balance-notification')
-        if(!notification) {
-            notification = document.createElement('div');
-            notification.id = 'target-balance-notification';
-            rebalanceSection.appendChild(notification);
-        }
-
-        notification.textContent = balanceMessage;
-        notification.className = `mt-4 p-2 text-center font-bold rounded-md ${isBalanced ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`;
-        
-        confirmBtn.disabled = !isBalanced;
-    };
-    
-    rebalanceTasksList.addEventListener('click', e => {
-        const rebalanceInputs = rebalanceTasksList.querySelectorAll('.rebalance-input');
-        if (e.target.classList.contains('use-rebalance-btn')) {
-            const index = e.target.dataset.index;
-            const input = rebalanceInputs[index];
-            const diff = (parseFloat(newHoursInput.value) || 0) - originalHours;
-            const needed = diff > 0 ? diff : -diff;
-
-            const otherInputsTotal = Array.from(rebalanceInputs).reduce((sum, currentInput, i) => {
-                return i === parseInt(index) ? sum : sum + (parseFloat(currentInput.value) || 0);
-            }, 0);
-            
-            const remainingToBalance = needed - otherInputsTotal;
-            input.value = remainingToBalance.toFixed(2);
-            checkBalance(diff);
-        }
-    });
-
-    rebalanceTasksList.addEventListener('input', () => {
-        const diff = (parseFloat(newHoursInput.value) || 0) - originalHours;
-        checkBalance(diff);
-    });
-
-    newHoursInput.addEventListener('input', updateRebalanceUI);
-    updateRebalanceUI(); // Initial call
-    
-    confirmBtn.onclick = () => {
-        const newHours = parseFloat(newHoursInput.value) || 0;
-        const diff = newHours - originalHours;
-
-        scheduledTask.hours = newHours;
-
-        const rebalanceInputs = rebalanceTasksList.querySelectorAll('.rebalance-input');
-        Array.from(rebalanceInputs).forEach((input, index) => {
-            const amount = parseFloat(input.value) || 0;
-            if (amount > 0) {
-                if (diff > 0) { // We increased the main task, so decrease others
-                    otherTasksOnDay[index].hours -= amount;
-                } else { // We decreased the main task, so increase others
-                    otherTasksOnDay[index].hours += amount;
-                }
+            const hours = parseFloat(input.value);
+            const taskId = input.closest('[data-task-id]').dataset.taskId;
+            currentData[taskId] = input.value;
+            if(hours > 0) {
+                tasksToAdd.push({ taskId, hours });
+                totalHoursToAdd += hours;
             }
         });
 
-        hideModal();
-        renderApp();
+        if (tasksToAdd.length === 0) return showMessageModal("No hours entered for any task.", "Input Required", () => showAddTaskModal(dayId, currentData), "Back");
+        
+        if (totalHoursToAdd > remainingCapacity + 0.01) {
+            const autoAdjustHandler = () => {
+                const adjustedTasks = tasksToAdd.map(t => ({...t}));
+                let hoursToDistribute = remainingCapacity;
+                
+                adjustedTasks.forEach(task => {
+                    const allocated = Math.min(task.hours, hoursToDistribute);
+                    task.hours = allocated;
+                    hoursToDistribute -= allocated;
+                });
+                
+                addTasksToSchedule(sprint, dayId, adjustedTasks.filter(t => t.hours > 0));
+            };
+            showActionModal({
+                title: "Capacity Exceeded",
+                message: `Total hours to add (${totalHoursToAdd.toFixed(2)}h) exceed remaining capacity for this day (${remainingCapacity.toFixed(2)}h).`,
+                buttons: [
+                    { label: "Back", class: "bg-gray-200", handler: () => showAddTaskModal(dayId, currentData) },
+                    { label: "Auto-Adjust to Capacity", class: "bg-blue-600 text-white", handler: autoAdjustHandler }
+                ]
+            });
+            return;
+        }
+        
+        addTasksToSchedule(sprint, dayId, tasksToAdd);
     };
 }
 
-
-function handleEditDayCapacity() {
-    const sprint = appState.sprints[appState.activeSprintId];
-    
-    let allDaysHtml = Object.keys(dayMeta).map(dayId => {
-        const date = getDateForDayId(sprint.startDate, dayId);
-        const dayOffStatus = sprint.daysOff[dayId];
-        const defaultCapacity = sprint.defaultDailyLimits[dayId];
-        const currentCapacity = sprint.dailyLimits[dayId];
-        const canFill = dayOffStatus === 'none' && currentCapacity < MAX_DAY_CAPACITY;
-
-        let dateDisplay = dayMeta[dayId].name;
-         if (date) {
-            const dayStr = date.toLocaleDateString('en-GB', { weekday: 'short' });
-            const dateStr = date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
-            dateDisplay = `${dayStr} ${dateStr}`;
-        }
+function addTasksToSchedule(sprint, dayId, tasksToAdd) {
+    const { availableTasks } = getAvailableTasks(sprint);
+    tasksToAdd.forEach(taskData => {
+        const taskInfo = availableTasks.find(t => t.id === taskData.taskId);
+        let hoursToSchedule = taskData.hours;
         
-        return `
-            <div class="grid grid-cols-5 gap-4 items-center p-2 rounded-md day-adjust-row" data-day-id="${dayId}">
-                <label class="text-sm font-medium text-gray-700 col-span-1">${dateDisplay}</label>
-                <span class="text-center font-mono text-sm text-gray-500">${defaultCapacity.toFixed(2)}h</span>
-                <div class="flex items-center gap-1">
-                     <input type="number" class="form-input w-full capacity-change-input" value="${currentCapacity}" 
-                        min="${MIN_DAY_CAPACITY}" max="${MAX_DAY_CAPACITY}" step="0.25" ${dayOffStatus !== 'none' ? 'disabled' : ''}>
-                    <button class="p-1 rounded-full fill-remainder-btn ${canFill ? 'text-green-500' : 'text-gray-300'}" title="Fill with remainder" ${!canFill ? 'disabled' : ''}>
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.414-1.415L11 9.586V6z" clip-rule="evenodd" /></svg>
-                    </button>
-                </div>
-                <div class="col-span-2 flex items-center justify-center">
-                    <div class="day-off-toggle" data-state="${dayOffStatus}">
-                         <div class="day-off-toggle-label">
-                            ${dayOffStatus === 'full' ? 'OFF' : (dayOffStatus === 'half' ? 'HALF' : '')}
-                        </div>
-                        <div class="day-off-toggle-thumb"></div>
-                        <div class="day-off-toggle-section" data-value="full" title="Full Day Off"></div>
-                        <div class="day-off-toggle-section" data-value="none" title="Work Day"></div>
-                        <div class="day-off-toggle-section" data-value="half" title="Half Day Off"></div>
-                    </div>
-                </div>
-            </div>`;
-    }).join('');
+        if (taskData.hours > taskInfo.unplannedHours + 0.01) {
+            const exceededHours = taskData.hours - taskInfo.unplannedHours;
+            hoursToSchedule = taskInfo.unplannedHours > 0 ? taskInfo.unplannedHours : 0;
+            if (exceededHours > 0) {
+                sprint.exceededLogs.push({ logId: `exlog-${Date.now()}`, fromTaskId: taskData.taskId, hours: exceededHours, dayLogged: dayId });
+            }
+        }
+        if (!sprint.schedule[dayId]) sprint.schedule[dayId] = [];
+        if (hoursToSchedule > 0) {
+            const existingEntry = sprint.schedule[dayId].find(t => t.taskId === taskData.taskId);
+            if (existingEntry) {
+                existingEntry.hours += hoursToSchedule;
+            } else {
+                sprint.schedule[dayId].push({ id: `s_${dayId}_${taskData.taskId}_${Math.random()}`, taskId: taskData.taskId, hours: hoursToSchedule });
+            }
+        }
+    });
+    hideModal();
+    renderApp();
+}
+
+function showEditSingleTaskModal(scheduledId) {
+    const { dayId, scheduledTask } = findScheduledTaskById(scheduledId);
+    if (!scheduledTask) return;
+    const sprint = appState.sprints[appState.activeSprintId];
+    const taskDef = sprint.tasks[scheduledTask.taskId];
 
     const modalContent = showModal(`
-        <h3 class="text-lg font-semibold mb-4">Adjust Capacity & Days Off</h3>
-        <p class="text-sm text-gray-600 my-2">Adjust daily hours or mark days off. Total capacity across available days must remain balanced.</p>
-        
-        <div class="grid grid-cols-5 gap-4 items-center font-bold text-xs uppercase text-gray-500 mb-2 border-b pb-2">
-            <span>Day</span>
-            <span class="text-center">Default</span>
-            <span class="text-center">Adjusted</span>
-            <span class="text-center col-span-2">Day Off Status</span>
+        <p class="text-sm text-gray-600 mb-4">Editing hours for <strong>${taskDef.ticketId.replace(/^NCOP-/, '')} - ${taskDef.name}</strong> on ${dayMeta[dayId].name}.</p>
+        <div>
+            <label for="edit-hours-input" class="block text-sm font-medium text-gray-700">Hours</label>
+            <input id="edit-hours-input" type="number" class="form-input mt-1" value="${scheduledTask.hours.toFixed(2)}" step="0.25" min="0">
         </div>
-
-        <div id="all-days-list" class="space-y-1">
-            ${allDaysHtml}
+        <div id="balance-notification" class="mt-4 p-2 text-center font-bold rounded-md"></div>
+        <div class="flex justify-end mt-6">
+            <button id="confirm-update-btn" class="px-4 py-2 bg-indigo-600 text-white rounded-md">Save Changes</button>
         </div>
-
-        <div id="balance-notification" class="mt-4 p-2 text-center font-bold rounded-md flex justify-center items-center gap-4"></div>
-        <div class="flex justify-end mt-6 gap-3">
-            <button onclick="hideModal()" class="px-4 py-2 bg-gray-200 rounded-md">Cancel</button>
-            <button id="save-capacity-btn" class="px-4 py-2 bg-indigo-600 text-white rounded-md disabled:opacity-50">Save & Recalculate</button>
-        </div>`);
+    `, "Edit Task Hours");
     
+    const input = modalContent.querySelector('#edit-hours-input');
     const notification = modalContent.querySelector('#balance-notification');
-    const saveBtn = modalContent.querySelector('#save-capacity-btn');
-    const dayRows = modalContent.querySelectorAll('.day-adjust-row');
+    const saveBtn = modalContent.querySelector('#confirm-update-btn');
     
     const checkBalance = () => {
-        let newTotal = 0;
-        let originalTotal = 0;
+        const newHours = parseFloat(input.value) || 0;
+        const otherTasksHours = sprint.schedule[dayId]
+            .filter(t => t.id !== scheduledId)
+            .reduce((sum, t) => sum + t.hours, 0);
+        const newTotal = otherTasksHours + newHours;
+        const capacity = sprint.dailyLimits[dayId];
+        const diff = newTotal - capacity;
         
-        dayRows.forEach(row => {
-            const dayId = row.dataset.dayId;
-            const input = row.querySelector('.capacity-change-input');
-            const dayOffStatus = row.querySelector('.day-off-toggle').dataset.state;
-             
-            if (dayOffStatus === 'none') {
-                 originalTotal += sprint.defaultDailyLimits[dayId];
-            } else if (dayOffStatus === 'half') {
-                 originalTotal += sprint.defaultDailyLimits[dayId] / 2;
-            }
-            newTotal += parseFloat(input.value) || 0;
-        });
-
-        const diff = newTotal - originalTotal;
-        
-        if (Math.abs(diff) < 0.01) {
-            notification.className = 'mt-4 p-2 text-center font-bold rounded-md bg-green-100 text-green-700 flex justify-center items-center gap-4';
-            notification.innerHTML = '<span>Balanced</span>';
-            saveBtn.disabled = false;
-        } else {
-            notification.className = 'mt-4 p-2 text-center font-bold rounded-md bg-yellow-100 text-yellow-700 flex justify-center items-center gap-4';
-            notification.innerHTML = `<span>Out of balance by ${diff.toFixed(2)}h</span> <button id="distribute-btn" class="px-2 py-1 text-xs bg-yellow-400 text-yellow-900 rounded-md hover:bg-yellow-500">Distribute Remainder</button>`;
+        saveBtn.disabled = false;
+        if (diff > 0.01) {
+            notification.className = 'mt-4 p-2 text-center font-bold rounded-md bg-red-100 text-red-700';
+            notification.textContent = `Over capacity by ${diff.toFixed(2)}h.`;
             saveBtn.disabled = true;
-            modalContent.querySelector('#distribute-btn').onclick = () => distributeRemainder(diff);
+        } else {
+            notification.className = 'mt-4 p-2 text-center font-bold rounded-md bg-green-100 text-green-700';
+            notification.textContent = `Remaining capacity: ${(-diff).toFixed(2)}h.`;
         }
     };
-
-    const distributeRemainder = (diff) => {
-        let amountToDistribute = -diff;
-        
-        let passes = 0;
-        while (Math.abs(amountToDistribute) > 0.01 && passes < 10) {
-            const adjustableDays = [];
-            dayRows.forEach(row => {
-                const dayOffStatus = row.querySelector('.day-off-toggle').dataset.state;
-                const input = row.querySelector('.capacity-change-input');
-                const currentValue = parseFloat(input.value);
-                if (dayOffStatus === 'none' && currentValue < MAX_DAY_CAPACITY) {
-                    adjustableDays.push(input);
-                }
-            });
-
-            if (adjustableDays.length === 0) break;
-
-            const amountPerDay = amountToDistribute / adjustableDays.length;
-
-            adjustableDays.forEach(input => {
-                const currentValue = parseFloat(input.value);
-                const spaceAvailable = MAX_DAY_CAPACITY - currentValue;
-                const amountToAdd = Math.min(spaceAvailable, amountPerDay);
-                
-                if (amountToAdd > 0.01) {
-                     const newValue = currentValue + amountToAdd;
-                     input.value = newValue.toFixed(2);
-                     amountToDistribute -= amountToAdd;
-                }
-            });
-            passes++;
-        }
-        
-        let finalTotal = 0;
-        let originalTotal = 0;
-        dayRows.forEach(row => {
-             const dayId = row.dataset.dayId;
-             const input = row.querySelector('.capacity-change-input');
-             const dayOffStatus = row.querySelector('.day-off-toggle').dataset.state;
-             if (dayOffStatus === 'none') originalTotal += sprint.defaultDailyLimits[dayId];
-             else if (dayOffStatus === 'half') originalTotal += sprint.defaultDailyLimits[dayId] / 2;
-             finalTotal += parseFloat(input.value) || 0;
-        });
-        const finalDiff = finalTotal - originalTotal;
-        
-        if (Math.abs(finalDiff) > 0.01) {
-             const firstAdjustable = Array.from(dayRows).find(row => !row.querySelector('.capacity-change-input').disabled);
-             if (firstAdjustable) {
-                const input = firstAdjustable.querySelector('.capacity-change-input');
-                input.value = (parseFloat(input.value) - finalDiff).toFixed(2);
-             }
-        }
-        
-        checkBalance();
-    };
-    
-    const fillRemainder = (targetInput) => {
-        let currentTotal = 0;
-        let originalTotal = 0;
-         dayRows.forEach(row => {
-            const dayId = row.dataset.dayId;
-            const input = row.querySelector('.capacity-change-input');
-            const dayOffStatus = row.querySelector('.day-off-toggle').dataset.state;
-            if (dayOffStatus === 'none') {
-                 originalTotal += sprint.defaultDailyLimits[dayId];
-            } else if (dayOffStatus === 'half') {
-                 originalTotal += sprint.defaultDailyLimits[dayId] / 2;
-            }
-            if (input !== targetInput) {
-                currentTotal += parseFloat(input.value) || 0;
-            }
-        });
-        const diff = originalTotal - currentTotal;
-        const newValue = Math.min(MAX_DAY_CAPACITY, diff);
-        targetInput.value = Math.max(MIN_DAY_CAPACITY, newValue).toFixed(2);
-        checkBalance();
-    }
-
-    dayRows.forEach(row => {
-        const dayId = row.dataset.dayId;
-        const capacityInput = row.querySelector('.capacity-change-input');
-        const toggle = row.querySelector('.day-off-toggle');
-        const toggleLabel = toggle.querySelector('.day-off-toggle-label');
-        
-        toggle.addEventListener('click', (e) => {
-            const clickedValue = e.target.dataset.value;
-            if (!clickedValue) return;
-
-            toggle.dataset.state = clickedValue;
-            
-            const defaultCapacity = sprint.defaultDailyLimits[dayId];
-            
-            if (clickedValue === 'full') {
-                capacityInput.value = '0.00';
-                capacityInput.disabled = true;
-                toggleLabel.textContent = 'OFF';
-            } else if (clickedValue === 'half') {
-                capacityInput.value = (defaultCapacity / 2).toFixed(2);
-                capacityInput.disabled = true;
-                toggleLabel.textContent = 'HALF';
-            } else { // 'none'
-                capacityInput.value = defaultCapacity.toFixed(2);
-                capacityInput.disabled = false;
-                toggleLabel.textContent = '';
-            }
-            row.querySelector('.fill-remainder-btn').disabled = (clickedValue === 'full');
-            checkBalance();
-        });
-
-        capacityInput.addEventListener('input', checkBalance);
-        row.querySelector('.fill-remainder-btn').addEventListener('click', () => fillRemainder(capacityInput));
-    });
-
+    input.addEventListener('input', checkBalance);
     checkBalance();
 
     saveBtn.onclick = () => {
-        const newLimits = { ...sprint.dailyLimits };
-        const newDaysOff = { ...sprint.daysOff };
-
-        dayRows.forEach(row => {
-            const dayId = row.dataset.dayId;
-            newLimits[dayId] = parseFloat(row.querySelector('.capacity-change-input').value) || 0;
-            newDaysOff[dayId] = row.querySelector('.day-off-toggle').dataset.state;
-        });
-
-        sprint.dailyLimits = newLimits;
-        sprint.daysOff = newDaysOff;
-        
-        // BUG FIX: Provide a default config for older sprints without one.
-        const schedulingConfig = sprint.allocationConfig ? sprint.allocationConfig.scheduling : {
-            create: 'week1',
-            execute: 'week2',
-            verify: ['w2d3', 'w2d4', 'w2d5']
-        };
-
-        sprint.schedule = distributeTasksLogically(sprint.tasks, newLimits, schedulingConfig); 
+        scheduledTask.hours = parseFloat(input.value) || 0;
+        if (scheduledTask.hours < 0.01) {
+            sprint.schedule[dayId] = sprint.schedule[dayId].filter(t => t.id !== scheduledId);
+        }
         hideModal();
         renderApp();
     };
 }
 
 
-// --- BOARD & SPRINT CREATION ---
-function showNewSprintDialog() {
-    showModal(`
-        <h3 class="text-xl font-semibold mb-4">Add New Sprint</h3>
-        <div class="flex flex-col gap-4">
-            <button id="import-sprint-btn" class="w-full text-left p-4 border rounded-lg hover:bg-gray-50"><strong class="text-indigo-600">Import from File/Text</strong><p class="text-sm text-gray-600">Load a sprint from JSON or a raw ticket list.</p></button>
-            <button id="create-sprint-btn" class="w-full text-left p-4 border rounded-lg hover:bg-gray-50"><strong class="text-indigo-600">Create New Board</strong><p class="text-sm text-gray-600">Manually enter tickets to build a new board.</p></button>
-        </div>
-        <div class="flex justify-end mt-6"><button onclick="hideModal()" class="px-4 py-2 bg-gray-200 rounded-md">Cancel</button></div>`);
-    document.getElementById('import-sprint-btn').onclick = () => handleImportClick(false);
-    document.getElementById('create-sprint-btn').onclick = () => handleCreateNewBoardClick();
+function switchTab(sprintId) {
+    appState.activeSprintId = sprintId;
+    renderApp();
 }
-
-function handleCreateNewBoardClick(initialTasks = []) {
-    showCalendarModal('Select Sprint Start Date', (startDate) => {
-        const modalContent = document.querySelector('#generic-modal .modal-content');
-        if (!modalContent) return;
-        
-        modalContent.innerHTML = `
-            <h3 class="text-lg font-semibold">Create New Board</h3>
-            <p class="text-sm text-gray-600 my-2">Enter ticket details. Click "+ Add Row" for more.</p>
-            <div class="overflow-x-auto"><table class="w-full text-sm"><thead class="bg-gray-50"><tr class="text-left"><th class="p-2 w-1/5">ID</th><th class="p-2 w-2/5">Title</th><th class="p-2 w-1/5">Type</th><th class="p-2 w-1/5">Points</th></tr></thead><tbody id="new-sprint-table-body"></tbody></table></div>
-            <button id="add-row-btn" class="mt-4 px-3 py-1.5 text-sm font-medium bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200">+ Add Row</button>
-            <div class="flex justify-end mt-6 gap-3"><button onclick="showNewSprintDialog()" class="px-4 py-2 bg-gray-200 rounded-md">Back</button><button id="confirm-create-board" class="px-4 py-2 bg-indigo-600 text-white rounded-md">Next</button></div>`;
-        
-        const tableBody = modalContent.querySelector('#new-sprint-table-body');
-        const addRow = (task = { ticketId: '', title: '', type: 'S', points: 1 }) => {
-            const row = document.createElement('tr');
-            row.innerHTML = `
-                <td class="p-1"><input type="text" class="form-input ticket-id" placeholder="NCOP-1234" value="${task.ticketId}"></td>
-                <td class="p-1"><input type="text" class="form-input ticket-title" placeholder="Task description..." value="${task.title}"></td>
-                <td class="p-1"><select class="form-input ticket-type"><option value="S" ${task.type === 'S' ? 'selected' : ''}>Story</option><option value="B" ${task.type === 'B' ? 'selected' : ''}>Bug</option></select></td>
-                <td class="p-1"><input type="number" class="form-input ticket-points" value="${task.points}" min="1"></td>`;
-            tableBody.appendChild(row);
-        };
-
-        if (initialTasks.length > 0) {
-            initialTasks.forEach(addRow);
-        } else {
-            addRow();
-        }
-
-        modalContent.querySelector('#add-row-btn').onclick = () => addRow();
-        modalContent.querySelector('#confirm-create-board').onclick = () => {
-            const parsedTasks = Array.from(tableBody.querySelectorAll('tr')).map(row => ({
-                ticketId: row.querySelector('.ticket-id').value, title: row.querySelector('.ticket-title').value,
-                type: row.querySelector('.ticket-type').value, points: parseInt(row.querySelector('.ticket-points').value, 10)
-            })).filter(t => t.ticketId && t.title && t.points > 0);
-            if (parsedTasks.length === 0) return showMessageModal("Please add at least one valid ticket.");
-            
-            showAllocationDialog(parsedTasks, startDate);
-        };
-    }, showNewSprintDialog); // onCancel, go back to the first dialog
-}
-
-
-function handlePasteAndCreateClick(initialText = null) {
-     showCalendarModal('Select Sprint Start Date', (startDate) => {
-        const modalContent = document.querySelector('#generic-modal .modal-content');
-        if (!modalContent) return;
-        
-        modalContent.innerHTML = `
-            <h3 class="text-lg font-semibold">✨ Paste & Create Sprint</h3>
-            <p class="text-sm text-gray-600 my-2">Paste ticket list from a spreadsheet (Format: ID	Title	Points	Type).</p>
-            <textarea id="ticket-text-ai" class="w-full h-64 p-2 border rounded-md font-mono text-xs" placeholder="Pasting from clipboard..."></textarea>
-            <div class="flex justify-end mt-6 gap-3">
-                <button onclick="handlePasteAndCreateClick(null)" class="px-4 py-2 bg-gray-200 rounded-md">Back</button>
-                <button id="confirm-paste-create" class="px-4 py-2 bg-indigo-600 text-white rounded-md">Create From Text</button>
-            </div>`;
-        
-        const textArea = modalContent.querySelector('#ticket-text-ai');
-        if (initialText !== null) {
-            textArea.value = initialText;
-        } else {
-             navigator.clipboard?.readText?.().then(text => {
-                textArea.value = text;
-            }).catch(err => {
-                console.warn("Could not auto-paste from clipboard.", err);
-                textArea.placeholder = "Could not auto-paste. Please paste your ticket list here.";
-            });
-        }
-
-        modalContent.querySelector('#confirm-paste-create').onclick = () => {
-            const ticketText = textArea.value;
-            if (!ticketText.trim()) return showMessageModal("Please paste some ticket information.");
-            
-            try {
-                const parsedTasks = parsePastedText(ticketText);
-                if(parsedTasks.length === 0) throw new Error("Could not parse any valid tasks from the text. Check the format: ID	Title	Points	Type, separated by tabs.");
-                showAllocationDialog(parsedTasks, startDate);
-            } catch (e) {
-                showMessageModal(`Failed to create board: ${e.message}`);
-            }
-        };
-     }, showNewSprintDialog);
-}
-
-
-function showAllocationDialog(parsedTasks, startDate) {
-    const modalContent = document.querySelector('#generic-modal .modal-content');
-    if (!modalContent) return;
-
-    const totalPoints = parsedTasks.reduce((sum, task) => sum + task.points, 0);
-    const totalWorkHours = 53 - DEMO_PREP_HOURS;
-    const defaultHoursPerPoint = totalPoints > 0 ? totalWorkHours / totalPoints : 0;
-    
-    const hasStories = parsedTasks.some(t => t.type === 'S');
-    const hasBugs = parsedTasks.some(t => t.type === 'B');
-
-    let storySubTasks = [
-        { name: 'Create TCs', type: 'create', percentage: 50 },
-        { name: 'Execute TCs', type: 'execute', percentage: 40 },
-        { name: 'C/V Bugs', type: 'verify', percentage: 10 }
-    ];
-
-    const renderStoryAllocations = () => {
-        const container = modalContent.querySelector('#story-allocations-container');
-        const totalEl = modalContent.querySelector('#story-alloc-total');
-        if (!container || !totalEl) return;
-
-        container.innerHTML = storySubTasks.map((task, index) => `
-            <div class="grid grid-cols-12 gap-2 items-center mb-2">
-                <input type="text" value="${task.name}" data-index="${index}" data-field="name" class="form-input col-span-5 story-alloc-input" placeholder="Sub-task Name">
-                <select data-index="${index}" data-field="type" class="form-input col-span-4 story-alloc-input">
-                    <option value="create" ${task.type === 'create' ? 'selected' : ''}>Create/Dev</option>
-                    <option value="execute" ${task.type === 'execute' ? 'selected' : ''}>Execute/Test</option>
-                    <option value="verify" ${task.type === 'verify' ? 'selected' : ''}>Verify/Bugs</option>
-                </select>
-                <input type="number" value="${task.percentage}" data-index="${index}" data-field="percentage" class="form-input col-span-2 story-alloc-input" placeholder="%">
-                <button data-index="${index}" class="remove-story-alloc-btn col-span-1 text-red-500 hover:text-red-700 font-bold text-lg flex justify-center items-center">&times;</button>
-            </div>
-        `).join('');
-
-        const totalPercentage = storySubTasks.reduce((sum, task) => sum + (parseInt(task.percentage, 10) || 0), 0);
-        totalEl.textContent = `Total: ${totalPercentage}%`;
-        totalEl.className = `text-right font-bold mt-2 ${totalPercentage === 100 ? 'text-green-600' : 'text-red-600'}`;
-    };
-    
-    let storyAllocationHtml = '';
-    if (hasStories) {
-        storyAllocationHtml = `
-            <h4 class="text-md font-semibold mb-2">Story Sub-Task Allocation</h4>
-            <div class="space-y-1 p-3 border rounded-md">
-                <p class="text-xs text-gray-500 mb-3">Define the sub-tasks for stories. Total percentage must be 100%.</p>
-                <div id="story-allocations-container"></div>
-                <button id="add-story-alloc-btn" class="text-xs px-2 py-1 bg-gray-100 rounded hover:bg-gray-200 mt-2">+ Add Sub-task</button>
-                <div id="story-alloc-total"></div>
-            </div>`;
-    }
-
-    let bugAllocationHtml = '';
-    if (hasBugs) {
-        bugAllocationHtml = `
-            <h4 class="text-md font-semibold mb-2 mt-4">Bug Allocation</h4>
-             <div class="p-3 border rounded-md">
-                <p class="text-xs text-gray-500 mb-2">Define how many hours are allocated per story point for standalone bugs.</p>
-                <label class="block text-sm font-medium">Hours per Point (for Bugs)</label>
-                <input id="alloc-bug-hours" type="number" value="${defaultHoursPerPoint.toFixed(2)}" step="0.1" class="form-input">
-            </div>`;
-    }
-    
-    let schedulingPrefsHtml = `
-        <h4 class="text-md font-semibold mb-2 mt-4">Task Scheduling</h4>
-        <div class="p-3 border rounded-md">
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-3">
-                <div>
-                    <label class="block text-sm font-medium">"Create/Dev" Phase</label>
-                    <select id="schedule-create" class="form-input text-sm">
-                        <option value="week1" selected>Week 1</option>
-                        <option value="week2">Week 2</option>
-                        <option value="all">Both Weeks</option>
-                    </select>
-                </div>
-                <div>
-                    <label class="block text-sm font-medium">"Execute/Test" Phase</label>
-                    <select id="schedule-execute" class="form-input text-sm">
-                        <option value="week1">Week 1</option>
-                        <option value="week2" selected>Week 2</option>
-                        <option value="all">Both Weeks</option>
-                    </select>
-                </div>
-            </div>
-            <div class="mt-3">
-                <label class="block text-sm font-medium mb-1">"Verify/Bugs" Days</label>
-                <div id="schedule-verify-days" class="grid grid-cols-3 sm:grid-cols-5 gap-2">
-                    ${Object.keys(dayMeta).map(dayId => `
-                        <label for="day-cb-${dayId}" class="flex items-center space-x-2 p-1.5 border rounded-md hover:bg-gray-50 cursor-pointer">
-                            <input type="checkbox" id="day-cb-${dayId}" value="${dayId}" class="schedule-verify-day-cb h-4 w-4 rounded text-indigo-600 focus:ring-indigo-500">
-                            <span class="text-xs font-medium">${dayMeta[dayId].name.substring(0,3)} (W${dayMeta[dayId].week})</span>
-                        </label>
-                    `).join('')}
-                </div>
-            </div>
-        </div>
-    `;
-
-    modalContent.innerHTML = `
-        <h3 class="text-lg font-semibold mb-4">Set Task Allocation & Scheduling</h3>
-        <div class="max-h-[65vh] overflow-y-auto pr-2">
-            ${storyAllocationHtml}
-            ${bugAllocationHtml}
-            ${schedulingPrefsHtml}
-        </div>
-        <div class="flex justify-end mt-6 gap-3 border-t pt-4">
-            <button onclick="handleCreateNewBoardClick()" class="px-4 py-2 bg-gray-200 rounded-md">Back</button>
-            <button id="confirm-alloc" class="px-4 py-2 bg-indigo-600 text-white rounded-md">Create Board</button>
-        </div>
-    `;
-
-    if (hasStories) {
-        renderStoryAllocations();
-        modalContent.querySelector('#story-allocations-container').addEventListener('input', (e) => {
-            const el = e.target;
-            const index = el.dataset.index;
-            if (index && storySubTasks[index]) {
-                storySubTasks[index][el.dataset.field] = el.value;
-                renderStoryAllocations();
-            }
-        });
-        modalContent.querySelector('#story-allocations-container').addEventListener('click', (e) => {
-            if (e.target.classList.contains('remove-story-alloc-btn')) {
-                storySubTasks.splice(e.target.dataset.index, 1);
-                renderStoryAllocations();
-            }
-        });
-        modalContent.querySelector('#add-story-alloc-btn').onclick = () => {
-            storySubTasks.push({ name: '', type: 'create', percentage: 0 });
-            renderStoryAllocations();
-        };
-    }
-    
-    const defaultVerifyDays = ['w2d3', 'w2d4', 'w2d5'];
-    defaultVerifyDays.forEach(dayId => {
-        const cb = modalContent.querySelector(`#day-cb-${dayId}`);
-        if(cb) cb.checked = true;
-    });
-
-    modalContent.querySelector('#confirm-alloc').onclick = () => {
-        if (hasStories) {
-            const totalPercentage = storySubTasks.reduce((sum, task) => sum + (parseInt(task.percentage, 10) || 0), 0);
-            if (totalPercentage !== 100) {
-                return showMessageModal(`Story sub-task percentages must add up to 100%. Current total is ${totalPercentage}%.`);
-            }
-             if (storySubTasks.some(t => !t.name.trim())) {
-                return showMessageModal("All story sub-tasks must have a name.");
-            }
-        }
-        
-        let bugHoursPerPoint = defaultHoursPerPoint;
-        if (hasBugs) {
-            bugHoursPerPoint = parseFloat(document.getElementById('alloc-bug-hours').value);
-            if (isNaN(bugHoursPerPoint)) {
-                return showMessageModal("Please enter a valid number for bug hours per point.");
-            }
-        }
-        
-        const scheduling = {
-            create: document.getElementById('schedule-create').value,
-            execute: document.getElementById('schedule-execute').value,
-            verify: Array.from(document.querySelectorAll('.schedule-verify-day-cb:checked')).map(cb => cb.value)
-        };
-        
-        if (scheduling.verify.length === 0 && (hasBugs || storySubTasks.some(t => t.type === 'verify'))) {
-            return showMessageModal("Please select at least one day for bug verification tasks.");
-        }
-
-        const allocationConfig = { storySubTasks, bugHoursPerPoint, scheduling };
-        const newSprint = createSprintFromParsedTasks(parsedTasks, allocationConfig, startDate);
-        newSprint.allocationConfig = allocationConfig; // Store config with the sprint
-        
-        const newSprintId = `sprint-${Date.now()}`;
-        newSprint.sprintId = newSprintId;
-        newSprint.sprintName = `Sprint ${Object.keys(appState.sprints).length + 1}`;
-        appState.sprints[newSprintId] = newSprint;
-        appState.activeSprintId = newSprintId;
-        hideModal();
-        renderApp();
-    };
-}
-
-function parsePastedText(text) {
-    return text.split('\n')
-        .filter(line => line.trim() !== '')
-        .map(line => {
-            const parts = line.split('\t').map(p => p.trim());
-            if (parts.length < 4) return null;
-
-            const id = parts[0];
-            const title = parts[1];
-            const pointsStr = parts[2];
-            const type = parts[3].toUpperCase();
-            
-            const points = parseInt(pointsStr, 10);
-            if (id && title && ['S', 'B'].includes(type) && !isNaN(points)) {
-                return { ticketId: id, title, type, points };
-            }
-            return null;
-        })
-        .filter(Boolean);
-}
-
-function createSprintFromParsedTasks(parsedTasks, allocationConfig, startDate) {
-    let newSprint = createNewSprintState("New Sprint", startDate);
-
-    const totalStoryPoints = parsedTasks.filter(t => t.type === 'S').reduce((sum, task) => sum + task.points, 0);
-    const totalBugPoints = parsedTasks.filter(t => t.type === 'B').reduce((sum, task) => sum + task.points, 0);
-
-    const totalCapacity = Object.values(newSprint.dailyLimits).reduce((a,b) => a+b, 0);
-    const totalWorkHours = totalCapacity - DEMO_PREP_HOURS;
-    const estimatedBugHours = totalBugPoints * allocationConfig.bugHoursPerPoint;
-    const remainingHoursForStories = totalWorkHours - estimatedBugHours;
-    
-    const storyHoursPerPoint = totalStoryPoints > 0 ? remainingHoursForStories / totalStoryPoints : 0;
-    
-    let taskCounter = 1;
-    parsedTasks.forEach(pt => {
-        const taskIdBase = `t${taskCounter++}`;
-        const autoLink = `https://oneline.atlassian.net/browse/${pt.ticketId}`;
-
-        if (pt.type === 'B') {
-            const taskHours = pt.points * allocationConfig.bugHoursPerPoint;
-            newSprint.tasks[taskIdBase] = { name: 'Verify Bug', title: pt.title, ticketId: pt.ticketId, type: 'verify', totalHours: taskHours, link: autoLink, points: pt.points };
-        } else { // 'S'
-            const storyTotalHours = pt.points * storyHoursPerPoint;
-            allocationConfig.storySubTasks.forEach((subTask, i) => {
-                const subTaskHours = storyTotalHours * (subTask.percentage / 100);
-                if (subTaskHours > 0.01) {
-                     newSprint.tasks[`${taskIdBase}_${i}`] = { 
-                        name: subTask.name, 
-                        title: pt.title, 
-                        ticketId: pt.ticketId, 
-                        type: subTask.type,
-                        totalHours: subTaskHours, 
-                        link: autoLink, 
-                        points: pt.points 
-                    };
-                }
-            });
-        }
-    });
-    
-    newSprint.tasks['t_demo'] = { name: 'Demo Prep', ticketId: 'N/A', type: 'demo', totalHours: DEMO_PREP_HOURS, points: 0, title: 'Sprint Demo Preparation' };
-
-    newSprint.schedule = distributeTasksLogically(newSprint.tasks, newSprint.dailyLimits, allocationConfig.scheduling);
-    return newSprint;
-}
-
-function distributeTasksLogically(tasks, dailyLimits, scheduling) {
-    const schedule = {};
-    const dayIds = Object.keys(dayMeta);
-    const dayCapacities = { ...dailyLimits }; // Start with full capacity
-    dayIds.forEach(d => schedule[d] = []);
-
-    // Reserve capacity for Demo Prep first
-    const demoTask = Object.entries(tasks).find(([,t]) => t.type === 'demo');
-    if (demoTask) {
-        const allDaysUntilW2Thu = dayIds.slice(0, -1);
-        const workingDaysForDemo = allDaysUntilW2Thu.filter(dayId => dayCapacities[dayId] > 0);
-        if (workingDaysForDemo.length > 0) {
-            const hoursPerDay = DEMO_PREP_HOURS / workingDaysForDemo.length;
-            workingDaysForDemo.forEach(dayId => {
-                dayCapacities[dayId] -= hoursPerDay; // Decrement capacity *before* scheduling other tasks
-            });
-        }
-    }
-    
-    // Now schedule other tasks into the remaining capacity
-    const week1Days = dayIds.filter(d => dayMeta[d].week === 1);
-    const week2Days = dayIds.filter(d => dayMeta[d].week === 2);
-
-    const taskQueues = {
-        create: Object.entries(tasks).filter(([, t]) => t.type === 'create').map(([id, t]) => ({ id, ...t, remaining: t.totalHours })),
-        execute: Object.entries(tasks).filter(([, t]) => t.type === 'execute').map(([id, t]) => ({ id, ...t, remaining: t.totalHours })),
-        verify: Object.entries(tasks).filter(([, t]) => t.type === 'verify').map(([id,t]) => ({id,...t, remaining: t.totalHours})),
-    };
-
-    const scheduleTask = (task, days) => {
-        for (const dayId of days) {
-            if (task.remaining <= 0.01) break;
-            const dayCapacity = dayCapacities[dayId] || 0;
-            const timeToLog = Math.min(dayCapacity, task.remaining);
-            if (timeToLog > 0.01) {
-                 schedule[dayId].push({ id: `s_${dayId}_${task.id}_${Math.random()}`, taskId: task.id, hours: timeToLog, subTasks: [] });
-                 task.remaining -= timeToLog;
-                 dayCapacities[dayId] -= timeToLog;
-            }
-        }
-    };
-    
-    const getDaysForPhase = (phase) => {
-        if (phase === 'week1') return week1Days;
-        if (phase === 'week2') return week2Days;
-        return dayIds;
-    };
-    
-    const createDays = getDaysForPhase(scheduling.create);
-    const executeDays = getDaysForPhase(scheduling.execute);
-    const verifyDays = scheduling.verify;
-
-    taskQueues.create.forEach(task => scheduleTask(task, createDays));
-    taskQueues.execute.forEach(task => scheduleTask(task, executeDays));
-    taskQueues.verify.forEach(task => scheduleTask(task, verifyDays));
-    
-    // Finally, add the Demo Prep tasks to the schedule
-    if (demoTask) {
-        const [demoTaskId] = demoTask;
-        const allDaysUntilW2Thu = dayIds.slice(0, -1);
-        const workingDaysForDemo = allDaysUntilW2Thu.filter(dayId => dailyLimits[dayId] > 0);
-        if (workingDaysForDemo.length > 0) {
-            let demoHoursRemaining = DEMO_PREP_HOURS;
-            const hoursPerDay = DEMO_PREP_HOURS / workingDaysForDemo.length;
-            workingDaysForDemo.forEach(dayId => {
-                const hoursToLog = Math.min(demoHoursRemaining, hoursPerDay);
-                if (hoursToLog > 0.01) {
-                    schedule[dayId].push({ id: `s_${dayId}_${demoTaskId}_demo`, taskId: demoTaskId, hours: hoursToLog, subTasks: [] });
-                    demoHoursRemaining -= hoursToLog;
-                }
-            });
-        }
-    }
-
-    // Consolidate any tasks that may have been split
-    dayIds.forEach(dayId => {
-        const tasksOnDay = schedule[dayId];
-        const consolidated = {};
-        tasksOnDay.forEach(task => {
-            if (!consolidated[task.taskId]) {
-                consolidated[task.taskId] = { ...task };
-            } else {
-                consolidated[task.taskId].hours += task.hours;
-            }
-        });
-        schedule[dayId] = Object.values(consolidated);
-    });
-
-    return schedule;
-}
-
-
-// --- IMPORT / EXPORT / SHARE ---
-
-function handleShareExportClick() {
+function updateSprintName(newName) {
     const sprint = appState.sprints[appState.activeSprintId];
-    const dataStr = JSON.stringify(sprint, null, 2);
-    
-    const modalContent = showModal(`
-        <h3 class="text-lg font-semibold">Share or Export Sprint</h3>
-        <p class="text-sm text-gray-600 my-2">Copy the data for sharing or download it as a JSON file.</p>
-        <textarea id="share-export-data" readonly class="w-full h-64 p-2 border rounded-md font-mono text-xs">${dataStr}</textarea>
-        <div class="flex justify-end mt-4 gap-3">
-            <button id="copy-btn" class="px-4 py-2 bg-indigo-600 text-white rounded-md">Copy to Clipboard</button>
-            <button id="download-btn" class="px-4 py-2 bg-green-600 text-white rounded-md">Download as .json</button>
-            <button onclick="hideModal()" class="px-4 py-2 bg-gray-200 rounded-md">Close</button>
-        </div>
-    `);
-
-    modalContent.querySelector('#copy-btn').onclick = (e) => {
-        const textArea = document.getElementById('share-export-data');
-        textArea.select();
-        document.execCommand('copy');
-        e.target.textContent = 'Copied!';
-        setTimeout(() => { e.target.textContent = 'Copy to Clipboard'; }, 2000);
-    };
-
-    modalContent.querySelector('#download-btn').onclick = () => {
-        const a = document.createElement('a');
-        a.href = 'data:text/json;charset=utf-8,' + encodeURIComponent(dataStr);
-        a.download = `${sprint.sprintName.replace(/ /g, '_')}.json`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-    };
-}
-
-
-function handleImportClick(overwriteCurrent = false) {
-    const title = overwriteCurrent ? 'Import to Current Tab' : 'Import Sprint to New Tab';
-    const backButton = overwriteCurrent ? '' : `<button onclick="showNewSprintDialog()" class="px-4 py-2 bg-gray-200 rounded-md">Back</button>`;
-    const modalContent = showModal(`
-        <h3 class="text-lg font-semibold">${title}</h3>
-        <p class="text-sm text-gray-600 my-2">Paste your exported JSON file or raw ticket list below.</p>
-        <textarea id="import-data" class="w-full h-64 p-2 border rounded-md font-mono text-xs" placeholder="Paste your saved plan data (JSON) or a raw ticket list here..."></textarea>
-        <div class="flex justify-end mt-4 gap-3">
-            ${backButton}
-            <button onclick="hideModal()" class="px-4 py-2 bg-gray-200 rounded-md">Cancel</button>
-            <button id="confirm-import" class="px-4 py-2 bg-indigo-600 text-white rounded-md">Paste & Load</button>
-        </div>`);
-    
-    modalContent.querySelector('#confirm-import').onclick = async () => {
-        const importTextArea = modalContent.querySelector('#import-data');
-        if (!importTextArea.value) {
-            try {
-                const text = await navigator.clipboard.readText();
-                importTextArea.value = text;
-            } catch (err) {
-                console.warn('Could not read from clipboard:', err);
-                showMessageModal('Could not auto-paste. Please paste the data manually and click again.');
-                return;
-            }
-        }
-        
-        const dataStr = importTextArea.value;
-        if (!dataStr) return;
-
-        try {
-            const newSprintState = JSON.parse(dataStr);
-            if (newSprintState && newSprintState.schedule && newSprintState.tasks) {
-                if(overwriteCurrent) {
-                    newSprintState.sprintId = appState.activeSprintId;
-                    appState.sprints[appState.activeSprintId] = newSprintState;
-                } else {
-                    const newSprintId = `sprint-${Date.now()}`;
-                    newSprintState.sprintId = newSprintId;
-                    appState.sprints[newSprintId] = newSprintState;
-                    appState.activeSprintId = newSprintId;
-                }
-                renderApp();
-                hideModal();
-            } else {
-                throw new Error("JSON data does not match the required sprint format.");
-            }
-        } catch (jsonError) {
-            try {
-                const parsedTasks = parsePastedText(dataStr);
-                if (parsedTasks.length > 0) {
-                    showCalendarModal('Select Sprint Start Date', (startDate) => {
-                         showAllocationDialog(parsedTasks, startDate);
-                    });
-                } else {
-                    showMessageModal(
-                        "Import failed: The data is not a valid sprint plan (JSON). If pasting a ticket list, ensure it follows the format: ID, Title, Type, Points.", 
-                        "Invalid Data Format"
-                    );
-                }
-            } catch (textParseError) {
-                 showMessageModal(
-                    "Import failed: The data could not be understood as a sprint plan (JSON) or a ticket list.",
-                    "Import Error"
-                 );
-                 console.error("Import/Parse error:", textParseError);
-            }
-        }
-    };
-}
-
-function handleDeleteSprint() {
-    const sprintName = appState.sprints[appState.activeSprintId].sprintName;
-    if (Object.keys(appState.sprints).length <= 1) {
-        showMessageModal("Cannot delete the last sprint.", "Action not allowed");
-        return;
+    if (sprint) {
+        sprint.sprintName = newName;
+        renderTabs();
+        saveState();
     }
-
-    showConfirmationModal(
-        `Are you sure you want to permanently delete the sprint "${sprintName}"?`,
-        () => {
-            delete appState.sprints[appState.activeSprintId];
-            appState.activeSprintId = Object.keys(appState.sprints)[0] || null;
-            renderApp();
-        }
-    );
 }
-
-// --- UTILITIES & HELPERS ---
 function getDateForDayId(startDateStr, dayId) {
     if (!startDateStr) return null;
-    try {
-        const startDate = new Date(startDateStr + 'T00:00:00'); 
-        const offset = dayOffsets[dayId];
-        if (typeof offset === 'undefined') return null;
-
-        const targetDate = new Date(startDate);
-        targetDate.setDate(startDate.getDate() + offset);
-        return targetDate;
-    } catch (e) {
-        console.error("Error parsing start date:", startDateStr, e);
-        return null;
+    const startDate = new Date(startDateStr + 'T00:00:00');
+    const offset = dayOffsets[dayId];
+    const targetDate = new Date(startDate);
+    targetDate.setDate(startDate.getDate() + offset);
+    return targetDate;
+}
+function getAvailableTasks(sprint, forDayId = null) {
+    let dayScheduledHours = 0;
+    if(forDayId && sprint.schedule[forDayId]) {
+        dayScheduledHours = sprint.schedule[forDayId].reduce((sum, task) => sum + task.hours, 0);
     }
-}
-
-function getTaskSummaries(sprint) {
-    const storySummary = {};
-    const bugSummary = [];
-
-    Object.values(sprint.tasks).forEach(task => {
-        if (task.ticketId === 'N/A') return;
-
-        const isBug = task.type === 'verify' && task.name !== 'C/V Bugs';
-
-        if (isBug) {
-            const existingBug = bugSummary.find(b => b.ticketId === task.ticketId);
-            if (existingBug) {
-                existingBug.totalHours += task.totalHours;
-            } else {
-                bugSummary.push({
-                    ticketId: task.ticketId,
-                    totalHours: task.totalHours,
-                    title: task.title,
-                    link: task.link
-                });
-            }
-        } else {
-            if (!storySummary[task.ticketId]) {
-                storySummary[task.ticketId] = {
-                    title: task.title,
-                    link: task.link,
-                    subTasks: {}
-                };
-            }
-            if (!storySummary[task.ticketId].subTasks[task.name]) {
-                storySummary[task.ticketId].subTasks[task.name] = 0;
-            }
-            storySummary[task.ticketId].subTasks[task.name] += task.totalHours;
-        }
-    });
-
-    return { storySummary, bugSummary };
-}
-
-function calculateOverallProgress(sprint) {
-    if (!sprint || !sprint.schedule) return 0;
-    const { totalWeightedProgress, totalHours } = Object.values(sprint.schedule).flat().reduce((acc, task) => {
-        acc.totalWeightedProgress += task.hours * (calculateTaskProgress(task) / 100);
-        acc.totalHours += task.hours;
+    const totalScheduled = Object.values(sprint.schedule).flat().reduce((acc, task) => {
+        if (!acc[task.taskId]) acc[task.taskId] = 0;
+        acc[task.taskId] += task.hours;
         return acc;
-    }, { totalWeightedProgress: 0, totalHours: 0 });
-    return totalHours > 0 ? (totalWeightedProgress / totalHours * 100).toFixed(0) : 0;
+    }, {});
+    const availableTasks = Object.entries(sprint.tasks)
+        .map(([taskId, taskDef]) => {
+            const scheduled = totalScheduled[taskId] || 0;
+            const unplannedHours = (taskDef.totalHours || 0) - scheduled;
+            return { id: taskId, ...taskDef, unplannedHours: unplannedHours > 0.01 ? unplannedHours : 0, scheduledHours: scheduled };
+        });
+    return { availableTasks, dayScheduledHours, totalScheduled };
 }
-
-function calculateTaskProgress(st) {
-    if (st.progressOverride !== null && typeof st.progressOverride !== 'undefined') {
-        return st.progressOverride;
-    }
-    if (!st.subTasks || st.subTasks.length === 0) return 0;
-    const doneCount = st.subTasks.filter(t => t.done).length;
-    return Math.round((doneCount / st.subTasks.length) * 100);
-}
-
-
 function findScheduledTaskById(id) {
     const sprint = appState.sprints[appState.activeSprintId];
     if (!sprint) return {};
@@ -2107,122 +840,424 @@ function findScheduledTaskById(id) {
     return {};
 }
 
-function findDayFromElement(element) {
-    const dayColumn = element.closest('.day-column');
-    return dayColumn ? { dayId: dayColumn.dataset.dayId } : {};
+// --- SPRINT CREATION & DELETION ---
+function showNewSprintDialog() {
+    handlePasteAndCreateClick();
 }
 
-function extractTicketIdFromUrl(text) {
-    if (!text || !text.includes('/')) return null;
-    try {
-        const parts = text.split('/');
-        const lastPart = parts[parts.length - 1];
-        if (lastPart.includes('-')) return lastPart.split('?')[0];
-    } catch(e) { /* ignore */ }
-    return null;
+function handlePasteAndCreateClick() {
+    const nextSprintNum = appState.uiState.lastSprintNumber + 1;
+    const modalContent = showModal(`
+        <div class="space-y-4">
+            <div class="flex items-end gap-2">
+                 <span class="text-lg font-medium text-gray-700 pt-1">Sprint</span>
+                <input id="new-sprint-number" type="number" class="form-input" value="${nextSprintNum}">
+            </div>
+            <div>
+                <label for="ticket-text-ai" class="block text-sm font-medium text-gray-700">Paste Ticket Data</label>
+                <div class="relative mt-1">
+                    <textarea id="ticket-text-ai" class="w-full h-48 p-2 border rounded-md font-mono text-xs" placeholder="Example:\nNCOP-9382\tBug - [UAT] Incorrect Logic\t5\tB\nNCOP-9879\tEnhance scalar function\t8\tS"></textarea>
+                    <button id="paste-from-clipboard-btn" class="absolute top-2 right-2 px-3 py-1 text-xs bg-gray-200 rounded-md hover:bg-gray-300">Paste</button>
+                </div>
+            </div>
+        </div>
+        <div class="flex justify-end mt-6">
+            <button id="confirm-create-btn" class="px-4 py-2 bg-indigo-600 text-white rounded-md">Create Sprint</button>
+        </div>`, "✨ Create New Sprint");
+        
+    const textArea = modalContent.querySelector('#ticket-text-ai');
+    modalContent.querySelector('#paste-from-clipboard-btn').onclick = () => {
+        navigator.clipboard.readText().then(text => { textArea.value = text; }).catch(err => {
+            showMessageModal("Clipboard access was denied. Please paste manually.", "Clipboard Error");
+        });
+    };
+    modalContent.querySelector('#confirm-create-btn').onclick = () => {
+        const sprintNumber = modalContent.querySelector('#new-sprint-number').value.trim();
+        if (!sprintNumber || isNaN(parseInt(sprintNumber))) return showMessageModal("Please enter a valid sprint number.", "Input Required", () => showNewSprintDialog(), "Back");
+        const sprintName = `Sprint ${sprintNumber}`;
+
+        const ticketText = textArea.value;
+        if (!ticketText.trim()) return showMessageModal("Please paste some ticket information.", "Input Required", () => showNewSprintDialog(), "Back");
+        
+        try {
+            const parsedTasks = parsePastedText(ticketText);
+            if(parsedTasks.length === 0) throw new Error("Could not parse any valid tasks from the pasted text.");
+            
+            const newSprint = createSprintFromParsedTasks(parsedTasks, sprintName);
+            const newSprintId = `sprint-${Date.now()}`;
+            appState.sprints[newSprintId] = newSprint;
+            appState.activeSprintId = newSprintId;
+            appState.uiState.lastSprintNumber = parseInt(sprintNumber);
+            hideModal();
+            renderApp();
+        } catch (e) {
+            showMessageModal(`Failed to create board: ${e.message}`, "Parsing Error", () => showNewSprintDialog(), "Back");
+        }
+    };
+}
+function parsePastedText(text) {
+    return text.split('\n').filter(line => line.trim() !== '').map(line => {
+        const parts = line.split('\t').map(p => p.trim());
+        if (parts.length < 4) return null;
+        const [ticketId, title, pointsStr, type] = parts;
+        const points = parseInt(pointsStr, 10);
+        if (ticketId && title && !isNaN(points)) {
+            return { ticketId, title, points, type: type.toUpperCase() };
+        }
+        return null;
+    }).filter(Boolean);
 }
 
+function createSprintFromParsedTasks(parsedTasks, sprintName) {
+    let newSprint = createNewSprintState(sprintName);
+    const storySubTasks = [{ name: 'Create TCs', type: 'create', percentage: 50 }, { name: 'Execute TCs', type: 'execute', percentage: 40 }, { name: 'C/V Bugs', type: 'verify', percentage: 10 }];
+    const hoursPerPoint = 4.5;
+    let taskCounter = 1;
+    (parsedTasks || []).forEach(pt => {
+        const taskIdBase = `t${taskCounter++}`;
+        const totalHours = pt.points * hoursPerPoint;
+        if (pt.type === 'B') {
+            newSprint.tasks[taskIdBase] = { name: 'Verify Bug', title: pt.title, ticketId: pt.ticketId, type: 'verify', totalHours, points: pt.points };
+        } else {
+            storySubTasks.forEach((subTask, i) => {
+                const subTaskHours = totalHours * (subTask.percentage / 100);
+                if (subTaskHours > 0.01) {
+                     newSprint.tasks[`${taskIdBase}_${i}`] = { name: subTask.name, title: pt.title, ticketId: pt.ticketId, type: subTask.type, totalHours: subTaskHours, points: pt.points };
+                }
+            });
+        }
+    });
+    newSprint.tasks['task_demo'] = { name: 'Demo Prep', ticketId: 'DEMO_PREP', type: 'demo', totalHours: 0 };
+    return newSprint;
+}
 function createNewSprintState(name, startDate = null) {
-    const sprintId = `sprint-${Date.now()}`;
     const defaultLimits = { w1d1: 4.0, w1d2: 6.75, w1d3: 5.75, w1d4: 2.75, w1d5: 6.75, w2d1: 6.75, w2d2: 6.75, w2d3: 6.75, w2d4: 4.75, w2d5: 3.5 };
-    return {
-        sprintId,
-        sprintName: name,
-        startDate: startDate,
-        dailyLimits: { ...defaultLimits },
-        defaultDailyLimits: { ...defaultLimits },
-        daysOff: Object.keys(dayMeta).reduce((acc, dayId) => ({...acc, [dayId]: 'none'}), {}),
-        tasks: {},
-        schedule: {}
+    return { sprintName: name, startDate: startDate, dailyLimits: { ...defaultLimits }, defaultDailyLimits: { ...defaultLimits }, daysOff: Object.keys(dayMeta).reduce((acc, dayId) => ({...acc, [dayId]: 'none'}), {}), tasks: {}, schedule: {}, exceededLogs: [] };
+}
+function handleDeleteSprint() {
+    if (Object.keys(appState.sprints).length <= 1) {
+        return showMessageModal("Cannot delete the last sprint.", "Action not allowed");
+    }
+    const sprintsHtml = Object.entries(appState.sprints).map(([id, sprint]) => `
+        <label class="flex items-center gap-3 p-2 border rounded-md hover:bg-gray-50">
+            <input type="checkbox" class="h-4 w-4 rounded sprint-delete-checkbox" value="${id}">
+            <span class="font-medium text-sm">${sprint.sprintName}</span>
+        </label>
+    `).join('');
+
+    const modalContent = showModal(`
+        <p class="text-sm text-gray-600 mb-4">Select the sprint(s) you want to permanently delete.</p>
+        <div class="flex items-center gap-2 border-b pb-2 mb-2"><input type="checkbox" id="select-all-delete" class="h-4 w-4 rounded"><label for="select-all-delete" class="text-sm font-medium">Select All</label></div>
+        <div class="space-y-2 max-h-60 overflow-y-auto">${sprintsHtml}</div>
+        <div class="flex justify-end mt-6">
+            <button id="confirm-delete-btn" class="px-4 py-2 bg-red-600 text-white rounded-md">Delete Selected</button>
+        </div>
+    `, "Delete Sprints");
+    const selectAll = modalContent.querySelector('#select-all-delete');
+    const allCheckboxes = modalContent.querySelectorAll('.sprint-delete-checkbox');
+    selectAll.addEventListener('change', () => {
+        allCheckboxes.forEach(cb => cb.checked = selectAll.checked);
+    });
+    modalContent.querySelector('#confirm-delete-btn').onclick = () => {
+        const checkedBoxes = modalContent.querySelectorAll('.sprint-delete-checkbox:checked');
+        const idsToDelete = Array.from(checkedBoxes).map(cb => cb.value);
+        if (idsToDelete.length === 0) return showMessageModal("No sprints selected.");
+        if (Object.keys(appState.sprints).length - idsToDelete.length < 1) return showMessageModal("You cannot delete all sprints. At least one must remain.");
+        showConfirmationModal(`Are you sure you want to delete ${idsToDelete.length} sprint(s)? This cannot be undone.`, () => {
+            idsToDelete.forEach(id => delete appState.sprints[id]);
+            if (idsToDelete.includes(appState.activeSprintId)) {
+                appState.activeSprintId = Object.keys(appState.sprints)[0];
+            }
+            renderApp();
+        });
     };
 }
 
-function createDefaultSampleSprintState(name) {
-    const today = new Date();
-    const startDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-    const state = createNewSprintState(name, startDate);
+// --- DAY STATUS CHANGE MODALS ---
+function showDemoPrepModal() {
+    const sprint = appState.sprints[appState.activeSprintId];
+    
+    let demoTaskId = Object.keys(sprint.tasks).find(k => sprint.tasks[k].ticketId === 'DEMO_PREP');
+    if (!demoTaskId) { 
+        demoTaskId = `task_demo_${Date.now()}`;
+        sprint.tasks[demoTaskId] = { name: 'Demo Prep', ticketId: 'DEMO_PREP', type: 'demo', totalHours: 0 };
+    }
+    const currentHours = sprint.tasks[demoTaskId].totalHours;
+    
+    const dayCheckboxHtml = (weekNum) => Object.keys(dayMeta).filter(d => dayMeta[d].week == weekNum).map(dayId => {
+        const isChecked = (sprint.schedule[dayId] || []).some(t => t.taskId === demoTaskId);
+        const isDisabled = (sprint.daysOff[dayId] === 'full');
+        return `<label class="flex items-center space-x-2 p-1.5 border rounded-md ${isDisabled ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'hover:bg-gray-50 cursor-pointer'}">
+            <input type="checkbox" value="${dayId}" class="demo-prep-day-cb h-4 w-4 rounded text-indigo-600" ${isChecked ? 'checked' : ''} ${isDisabled ? 'disabled' : ''}>
+            <span class="text-xs font-medium">${dayMeta[dayId].name}</span>
+        </label>`;
+    }).join('');
 
-    state.tasks = {
-        't_demo': { name: 'Demo Prep', ticketId: 'N/A', type: 'demo', totalHours: DEMO_PREP_HOURS, points: 0, title: 'Sprint Demo Preparation' },
-        't2': { name: 'Create TCs', ticketId: '10096', title: 'Implement New User Dashboard', type: 'create', totalHours: 11.25, link: 'https://oneline.atlassian.net/browse/NCOP-10096', points: 5 },
-        't3': { name: 'Create TCs', ticketId: '9897', title: 'Develop Reporting Module', type: 'create', totalHours: 6.75, link: null, points: 3 },
-        't4': { name: 'Execute TCs', ticketId: '10096', title: 'Implement New User Dashboard', type: 'execute', totalHours: 9.0, link: null, points: 5 },
-        't5': { name: 'Execute TCs', ticketId: '9897', title: 'Develop Reporting Module', type: 'execute', totalHours: 5.4, link: null, points: 3 },
-        't6': { name: 'Verify Bug', ticketId: '9853', title: 'Fix Login Page CSS Issue', type: 'verify', totalHours: 4.5, link: null, points: 2 },
-        't7': { name: 'C/V Bugs', ticketId: '9897', title: 'Develop Reporting Module', type: 'verify', totalHours: 1.35, link: null, points: 3 },
-        't8': { name: 'Verify Bug', ticketId: '9744', title: 'API returning incorrect status code', type: 'verify', totalHours: 4.5, link: null, points: 2 },
-        't9': { name: 'C/V Bugs', ticketId: '10096', title: 'Implement New User Dashboard', type: 'verify', totalHours: 2.25, link: null, points: 5 },
+    showModal(`
+        <p class="text-sm text-gray-600 mb-4">Enter the total hours for demo prep and select the days to distribute it across.</p>
+        <div>
+            <label for="demo-hours" class="block text-sm font-medium text-gray-700">Total Demo Prep Hours</label>
+            <input type="number" id="demo-hours" class="form-input mt-1" value="${currentHours || ''}" step="0.5" min="0">
+        </div>
+        <div class="mt-4">
+            <div class="mb-2"><strong class="font-medium text-sm">Week 1</strong></div>
+            <div class="grid grid-cols-2 md:grid-cols-5 gap-2">${dayCheckboxHtml(1)}</div>
+        </div>
+        <div class="mt-4">
+            <div class="mb-2"><strong class="font-medium text-sm">Week 2</strong></div>
+            <div class="grid grid-cols-2 md:grid-cols-5 gap-2">${dayCheckboxHtml(2)}</div>
+        </div>
+        <div class="flex justify-end mt-6">
+            <button id="confirm-demo-prep" class="px-4 py-2 bg-purple-600 text-white rounded-md">Distribute Time</button>
+        </div>
+    `, "Distribute Demo Prep Time");
+
+    document.getElementById('confirm-demo-prep').onclick = () => {
+        const totalHours = parseFloat(document.getElementById('demo-hours').value);
+        if (isNaN(totalHours) || totalHours <= 0) {
+            return showMessageModal("Please enter a valid number of hours for demo prep.", "Input Required", null, "Back");
+        }
+        
+        const selectedDays = Array.from(document.querySelectorAll('.demo-prep-day-cb:checked')).map(cb => cb.value);
+
+        if (selectedDays.length === 0) {
+            return showMessageModal("Please select at least one day to distribute hours.", "Input Required", null, "Back");
+        }
+        
+        sprint.tasks[demoTaskId].totalHours = totalHours;
+        
+        Object.keys(sprint.schedule).forEach(dayId => {
+            sprint.schedule[dayId] = sprint.schedule[dayId].filter(t => t.taskId !== demoTaskId);
+        });
+        
+        const hoursPerDay = totalHours / selectedDays.length;
+        let distributedTotal = 0;
+        
+        selectedDays.forEach((dayId, index) => {
+            let hoursForThisDay = parseFloat(hoursPerDay.toFixed(2));
+            if (index === selectedDays.length - 1) {
+                hoursForThisDay = totalHours - distributedTotal;
+            }
+
+            if (!sprint.schedule[dayId]) sprint.schedule[dayId] = [];
+            sprint.schedule[dayId].push({
+                id: `s_${dayId}_${demoTaskId}_${Math.random()}`,
+                taskId: demoTaskId,
+                hours: hoursForThisDay
+            });
+            distributedTotal += hoursForThisDay;
+        });
+
+        hideModal();
+        renderApp();
     };
-    const defaultConfig = {
-        scheduling: { create: 'week1', execute: 'week2', verify: ['w2d3', 'w2d4', 'w2d5'] }
-    };
-    state.schedule = distributeTasksLogically(state.tasks, state.dailyLimits, defaultConfig.scheduling);
-    return state;
 }
 
-// --- MODAL & CALENDAR SYSTEM ---
-function showModal(content) {
+
+function showMoveOrDeleteTasksModal(originalDayId, tasksToMove) {
+    const sprint = appState.sprints[appState.activeSprintId];
+    const taskListHtml = tasksToMove.map(task => {
+        const taskDef = sprint.tasks[task.taskId];
+        return `<li class="text-sm">${taskDef.ticketId} - ${taskDef.name} (${task.hours.toFixed(2)}h)</li>`;
+    }).join('');
+
+    showActionModal({
+        title: 'Tasks on Day Off',
+        message: `<strong>${dayMeta[originalDayId].name}</strong> was set to a full day off. What should happen to its scheduled tasks? <br><ul class="list-disc list-inside my-4 bg-gray-50 p-3 rounded-md">${taskListHtml}</ul>`,
+        buttons: [
+            { label: "Cancel", class: "bg-gray-200", handler: () => {
+                sprint.daysOff[originalDayId] = 'none'; // Revert change
+                hideModal();
+                renderApp();
+            }},
+            { label: "Delete All", class: "bg-red-600 text-white", handler: () => {
+                delete sprint.schedule[originalDayId];
+                hideModal();
+                renderApp();
+            }},
+            { label: "Move All", class: "bg-indigo-600 text-white", handler: () => showMoveTasksTargetModal(tasksToMove, originalDayId) }
+        ]
+    });
+}
+
+function showMoveTasksTargetModal(tasksToMove, originalDayId) {
+    const sprint = appState.sprints[appState.activeSprintId];
+    const dayOptions = Object.keys(dayMeta).filter(dayId => sprint.daysOff[dayId] !== 'full' && dayId !== originalDayId).map(dayId => {
+        return `<option value="${dayId}">${dayMeta[dayId].name}</option>`;
+    }).join('');
+
+    const modalContent = showModal(`
+        <p class="mb-4">Select a new day to move all tasks from <strong>${dayMeta[originalDayId].name}</strong>.</p>
+        <select id="move-target-day" class="form-input">${dayOptions}</select>
+        <div class="flex justify-end mt-6 gap-3">
+            <button id="back-btn" class="px-4 py-2 bg-gray-200 rounded-md">Back</button>
+            <button id="confirm-move-btn" class="px-4 py-2 bg-indigo-600 text-white rounded-md">Confirm Move</button>
+        </div>
+    `, 'Select Target Day');
+
+    modalContent.querySelector('#back-btn').onclick = () => showMoveOrDeleteTasksModal(originalDayId, tasksToMove);
+
+    modalContent.querySelector('#confirm-move-btn').onclick = () => {
+        const targetDayId = modalContent.querySelector('#move-target-day').value;
+        if (!targetDayId) return;
+
+        if (!sprint.schedule[targetDayId]) sprint.schedule[targetDayId] = [];
+        
+        tasksToMove.forEach(task => {
+            const existing = sprint.schedule[targetDayId].find(t => t.taskId === task.taskId);
+            if(existing) {
+                existing.hours += task.hours;
+            } else {
+                sprint.schedule[targetDayId].push(task);
+            }
+        });
+
+        delete sprint.schedule[originalDayId];
+        hideModal();
+        renderApp();
+    };
+}
+
+function showHalfDayAdjustmentModal(dayId) {
+    const sprint = appState.sprints[appState.activeSprintId];
+    const newCapacity = sprint.dailyLimits[dayId];
+    const tasksOnDay = sprint.schedule[dayId] || [];
+    const scheduledHours = tasksOnDay.reduce((s, t) => s + t.hours, 0);
+    const overage = scheduledHours - newCapacity;
+
+    const taskListHtml = tasksOnDay.map(task => {
+        const taskDef = sprint.tasks[task.taskId];
+        return `<li>${taskDef.name} (${taskDef.ticketId}): ${task.hours.toFixed(2)}h</li>`;
+    }).join('');
+
+    showActionModal({
+        title: 'Adjust for Half Day',
+        message: `<p class="mb-2"><strong>${dayMeta[dayId].name}</strong> is now a half day (${newCapacity.toFixed(2)}h). The currently scheduled ${scheduledHours.toFixed(2)}h exceeds this by <strong>${overage.toFixed(2)}h</strong>.</p>
+                  <p class="mb-4">How do you want to adjust?</p>`,
+        buttons: [
+            { label: "Cancel", class: "bg-gray-200", handler: () => {
+                sprint.daysOff[dayId] = 'none'; // Revert change
+                hideModal();
+                renderApp();
+            }},
+            { label: "Adjust Manually", class: "bg-green-600 text-white", handler: () => {
+                hideModal();
+                showUpdateDayModal(dayId);
+            }},
+            { label: "Auto-Reduce", class: "bg-blue-600 text-white", handler: () => {
+                let reductionAmount = overage;
+                tasksOnDay.sort((a,b) => b.hours - a.hours); // reduce from largest tasks first
+                for(const task of tasksOnDay) {
+                    if(reductionAmount <= 0) break;
+                    const reduction = Math.min(task.hours, reductionAmount);
+                    task.hours -= reduction;
+                    reductionAmount -= reduction;
+                }
+                sprint.schedule[dayId] = tasksOnDay.filter(t => t.hours > 0.01);
+                hideModal();
+                renderApp();
+            }}
+        ]
+    });
+}
+
+
+// --- GENERIC MODAL SYSTEM ---
+function showModal(content, title = "") {
     const modal = document.getElementById('generic-modal');
-    modal.innerHTML = `<div class="modal-content">${content}</div>`;
+    modal.innerHTML = `<div class="modal-content">
+        <div class="flex justify-between items-start mb-4">
+            <h2 class="text-lg font-semibold text-gray-800">${title}</h2>
+            <button onclick="hideModal()" class="text-gray-400 hover:text-gray-600 z-10 p-1">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+            </button>
+        </div>
+        <div>${content.replace(/<h3.*?>.*?<\/h3>/, '')}</div>
+    </div>`;
     modal.classList.remove('hidden');
     setTimeout(() => modal.classList.remove('opacity-0'), 10);
-    return modal.querySelector('.modal-content');
+    return modal.querySelector('.modal-content div:last-child');
 }
-
 function hideModal() {
     const modal = document.getElementById('generic-modal');
     modal.classList.add('opacity-0');
     setTimeout(() => { modal.classList.add('hidden'); modal.innerHTML = ''; }, 300);
 }
-
-function showMessageModal(message, title = "Alert") {
-    showModal(`
-        <h3 class="text-lg font-semibold mb-4">${title}</h3>
-        <p>${message}</p>
+function showMessageModal(message, title = "Alert", onOk = hideModal, okLabel = "OK") {
+    const modalContent = showModal(`
+        <p class="text-sm text-gray-600">${message}</p>
         <div class="flex justify-end mt-6">
-            <button onclick="hideModal()" class="px-4 py-2 bg-indigo-600 text-white rounded-md">OK</button>
+            <button id="ok-btn" class="px-4 py-2 bg-indigo-600 text-white rounded-md">${okLabel}</button>
         </div>
-    `);
+    `, title);
+    modalContent.querySelector('#ok-btn').onclick = onOk || hideModal;
+}
+function showConfirmationModal(message, onConfirm, title = "Confirmation") {
+    showActionModal({
+        title: title,
+        message: message,
+        buttons: [
+            { label: "Cancel", class: "bg-gray-200", handler: hideModal },
+            { label: "Confirm", class: "bg-red-600 text-white", handler: () => {
+                if(onConfirm) onConfirm();
+                hideModal();
+            }}
+        ]
+    });
 }
 
-function showConfirmationModal(message, onConfirm, title = "Confirmation") {
+function showActionModal({ title, message, buttons = [] }) {
+    const buttonsHtml = buttons.map((btn, index) => 
+        `<button id="action-btn-${index}" class="px-4 py-2 rounded-md ${btn.class || 'bg-gray-200'}">${btn.label}</button>`
+    ).join('');
+
     const modalContent = showModal(`
-        <h3 class="text-lg font-semibold mb-4">${title}</h3>
-        <p>${message}</p>
-        <div class="flex justify-end mt-6 gap-3">
-            <button id="confirm-cancel" class="px-4 py-2 bg-gray-200 rounded-md">Cancel</button>
-            <button id="confirm-ok" class="px-4 py-2 bg-red-600 text-white rounded-md">Confirm</button>
+        <div class="text-sm text-gray-600">${message}</div>
+        <div class="flex justify-end mt-6 gap-3">${buttonsHtml}</div>
+    `, title);
+
+    buttons.forEach((btn, index) => {
+        modalContent.querySelector(`#action-btn-${index}`).onclick = () => {
+            if (btn.handler) btn.handler();
+        };
+    });
+}
+
+function showCalendarModal(title, onConfirm, onCancel = hideModal) {
+    const today = new Date();
+    const modalContent = showModal(`
+        <div id="calendar-container" class="max-w-xs mx-auto"></div>
+        <div class="flex justify-end mt-4">
+            <button id="calendar-cancel-btn" class="px-4 py-2 bg-gray-200 rounded-md">Cancel</button>
         </div>
-    `);
-    modalContent.querySelector('#confirm-cancel').onclick = hideModal;
-    modalContent.querySelector('#confirm-ok').onclick = () => {
+    `, title);
+    const calendarContainer = modalContent.querySelector('#calendar-container');
+    const calendar = generateCalendar(today.getFullYear(), today.getMonth(), (selectedDate) => {
         hideModal();
-        onConfirm();
-    };
+        onConfirm(selectedDate);
+    });
+    calendarContainer.appendChild(calendar);
+    modalContent.querySelector('#calendar-cancel-btn').onclick = onCancel;
 }
 
 function generateCalendar(year, month, onDateSelect) {
     const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-    const daysInMonth = new Date(year, month + 1, 0).getDate();
-    const firstDayOfMonth = new Date(year, month, 1);
-    const firstDayIndex = firstDayOfMonth.getDay() === 0 ? 6 : firstDayOfMonth.getDay() - 1; // 0 for Mon, 6 for Sun
-
     const calendarEl = document.createElement('div');
+    const firstDayOfMonth = new Date(year, month, 1);
+    const firstDayIndex = (firstDayOfMonth.getDay() + 6) % 7; // Monday=0, Sunday=6
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
 
     let html = `
         <div class="flex justify-between items-center mb-4">
-            <button id="prev-month" class="p-2 rounded-full hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-indigo-500"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path></svg></button>
+            <button id="prev-month" class="p-2 rounded-full hover:bg-gray-200">&lt;</button>
             <span class="font-semibold text-lg">${monthNames[month]} ${year}</span>
-            <button id="next-month" class="p-2 rounded-full hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-indigo-500"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg></button>
+            <button id="next-month" class="p-2 rounded-full hover:bg-gray-200">&gt;</button>
         </div>
         <div class="grid grid-cols-7 text-center text-xs text-gray-500 mb-2 font-medium">
             <div>Mo</div><div>Tu</div><div>We</div><div>Th</div><div>Fr</div><div>Sa</div><div>Su</div>
         </div>
-        <div class="grid grid-cols-7 gap-1">
-    `;
-    for (let i = 0; i < firstDayIndex; i++) {
-        html += `<div></div>`;
-    }
+        <div class="grid grid-cols-7 gap-1">`;
+    html += `<div></div>`.repeat(firstDayIndex);
     for (let day = 1; day <= daysInMonth; day++) {
         const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
         html += `<div class="p-2 text-center rounded-full cursor-pointer hover:bg-indigo-100 transition-colors" data-date="${dateStr}">${day}</div>`;
@@ -2231,50 +1266,18 @@ function generateCalendar(year, month, onDateSelect) {
     calendarEl.innerHTML = html;
 
     calendarEl.querySelector('#prev-month').onclick = () => {
-        const newDate = new Date(year, month - 1, 1);
-        const newCalendar = generateCalendar(newDate.getFullYear(), newDate.getMonth(), onDateSelect);
-        calendarEl.replaceWith(newCalendar);
+        calendarEl.replaceWith(generateCalendar(month === 0 ? year - 1 : year, month === 0 ? 11 : month - 1, onDateSelect));
     };
     calendarEl.querySelector('#next-month').onclick = () => {
-        const newDate = new Date(year, month + 1, 1);
-        const newCalendar = generateCalendar(newDate.getFullYear(), newDate.getMonth(), onDateSelect);
-        calendarEl.replaceWith(newCalendar);
+        calendarEl.replaceWith(generateCalendar(month === 11 ? year + 1 : year, month === 11 ? 0 : month + 1, onDateSelect));
     };
-    calendarEl.querySelectorAll('[data-date]').forEach(el => {
-        el.onclick = () => {
-            onDateSelect(el.dataset.date);
-        };
-    });
+    calendarEl.querySelectorAll('[data-date]').forEach(el => el.onclick = () => onDateSelect(el.dataset.date));
     return calendarEl;
-}
-
-function showCalendarModal(title, onConfirm, onCancel = hideModal) {
-    const modalContent = showModal(`
-        <h3 class="text-lg font-semibold mb-4">${title}</h3>
-        <div id="calendar-container" class="max-w-xs mx-auto"></div>
-        <div class="flex justify-end mt-4">
-            <button id="calendar-cancel-btn" class="px-4 py-2 bg-gray-200 rounded-md">Cancel</button>
-        </div>
-    `);
-    const calendarContainer = modalContent.querySelector('#calendar-container');
-    const calendar = generateCalendar(new Date().getFullYear(), new Date().getMonth(), (selectedDate) => {
-        onConfirm(selectedDate);
-    });
-    calendarContainer.appendChild(calendar);
-    modalContent.querySelector('#calendar-cancel-btn').onclick = onCancel;
 }
 
 
 // --- INITIALIZATION ---
-window.onload = () => {
-    loadState();
-    renderApp();
-    document.body.addEventListener('click', e => {
-        if (e.target.matches('.modal-overlay')) {
-            hideModal();
-        }
-    });
-};
+window.onload = () => { loadState(); renderApp(); };
 </script>
 </body>
 </html>
